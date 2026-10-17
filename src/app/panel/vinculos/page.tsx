@@ -23,7 +23,7 @@ function Similarity({ label, value }: { label: string; value: number | null }) {
 
 function LinkCard({ l }: { l: LinkView }) {
   const side = (id: string, title: string, started: string, risk: LinkView["a_risk"]) => (
-    <Link href={`/panel/casos/${id}`} className="block min-w-0 flex-1 rounded-lg bg-surface-2 p-3 hover:ring-1 hover:ring-line-strong">
+    <Link href={`/panel/casos/${id}`} className="block min-w-0 flex-1 rounded-2xl bg-surface-2 p-3.5 hover:bg-accent-wash">
       <div className="truncate text-sm font-medium">{title}</div>
       <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted">
         {fmtDateTime(started)} <RiskBadge level={risk} />
@@ -31,7 +31,7 @@ function LinkCard({ l }: { l: LinkView }) {
     </Link>
   );
   return (
-    <li className="rounded-xl border border-line bg-surface p-4 shadow-[0_1px_2px_rgba(0,0,0,0.04)]">
+    <li className="rounded-3xl bg-surface p-5 shadow-soft">
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-2">
           <LinkStatusTag status={l.status} />
@@ -61,14 +61,14 @@ function LinkCard({ l }: { l: LinkView }) {
           <Similarity label="Similitud de contenido" value={l.content_sim} />
         </div>
       </div>
-      {l.note && <p className="mt-3 rounded-lg bg-accent-wash px-3 py-2 text-sm text-accent-ink">{l.note}</p>}
+      {l.note && <p className="mt-3 rounded-2xl bg-accent-wash px-4 py-2.5 text-sm text-accent-ink">{l.note}</p>}
       <form className="mt-3 flex flex-col gap-2 sm:flex-row" action={reviewLink.bind(null, l.id, l.status === "pendiente" ? "confirmado" : "pendiente")}>
         {l.status === "pendiente" ? (
           <>
             <input
               name="note"
               placeholder="Nota de revisión (opcional)"
-              className="min-w-0 flex-1 rounded-lg border border-line-strong bg-surface px-3 py-2 text-sm outline-none focus:border-accent"
+              className="min-w-0 flex-1 rounded-full border border-line bg-surface px-4 py-2.5 text-sm outline-none focus:border-accent focus:ring-2 focus:ring-blue-100"
             />
             <button className={buttonCls.primary}>Confirmar vínculo</button>
             <button formAction={reviewLink.bind(null, l.id, "descartado")} className={buttonCls.secondary}>
@@ -108,7 +108,7 @@ export default async function LinksPage({ searchParams }: PageProps<"/panel/vinc
       />
       <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_26rem]">
         <div className="min-w-0">
-          <nav className="mb-4 flex gap-1 border-b border-line" aria-label="Estado de los vínculos">
+          <nav className="mb-4 flex flex-wrap gap-2" aria-label="Estado de los vínculos">
             {TABS.map((t) => {
               const n = links.filter((l) => l.status === t.id).length;
               return (
@@ -116,12 +116,12 @@ export default async function LinksPage({ searchParams }: PageProps<"/panel/vinc
                   key={t.id}
                   href={`/panel/vinculos?estado=${t.id}`}
                   aria-current={current === t.id ? "page" : undefined}
-                  className={`-mb-px flex items-center gap-1.5 border-b-2 px-3 py-2 text-sm ${
-                    current === t.id ? "border-accent font-medium text-fg" : "border-transparent text-fg-2 hover:text-fg"
+                  className={`flex items-center gap-1.5 rounded-full px-4 py-2 text-sm shadow-soft ${
+                    current === t.id ? "bg-accent font-semibold text-white" : "bg-surface text-fg-2 hover:text-accent-ink"
                   }`}
                 >
                   {t.label}
-                  <span className="tabular rounded-full bg-surface-2 px-1.5 text-[11px] text-muted">{n}</span>
+                  <span className={`tabular rounded-full px-1.5 text-[11px] font-bold ${current === t.id ? "bg-white/25 text-white" : "bg-accent-wash text-accent-ink"}`}>{n}</span>
                 </Link>
               );
             })}

@@ -47,7 +47,7 @@ function FilterGroup({
   options: typeof RISK_FILTERS;
 }) {
   return (
-    <div className="flex items-center rounded-lg border border-line bg-surface p-0.5 text-xs">
+    <div className="flex items-center rounded-full bg-surface p-1 text-xs shadow-soft">
       <span className="px-2 text-muted">{label}</span>
       {options.map((o) => {
         const active = all[k] === o.value;
@@ -56,7 +56,7 @@ function FilterGroup({
             key={o.value}
             href={filterHref(all, k, o.value)}
             aria-current={active ? "true" : undefined}
-            className={`rounded-md px-2.5 py-1 ${active ? "bg-accent-wash font-medium text-accent-ink" : "text-fg-2 hover:bg-surface-2"}`}
+            className={`rounded-full px-3 py-1 ${active ? "bg-accent font-semibold text-white" : "text-fg-2 hover:text-accent-ink"}`}
           >
             {o.label}
           </Link>
@@ -112,7 +112,7 @@ export default async function Cases({ searchParams }: PageProps<"/panel/casos">)
             defaultValue={params.q}
             placeholder="Buscar por título, persona o código"
             aria-label="Buscar casos"
-            className="w-full rounded-lg border border-line bg-surface py-1.5 pr-3 pl-9 text-sm outline-none focus:border-accent"
+            className="w-full rounded-full border border-line bg-surface py-2 pr-4 pl-10 text-sm shadow-soft outline-none focus:border-accent focus:ring-2 focus:ring-blue-100"
           />
         </form>
         <FilterGroup label="Riesgo" k="riesgo" all={params} options={RISK_FILTERS} />
@@ -128,7 +128,7 @@ export default async function Cases({ searchParams }: PageProps<"/panel/casos">)
       </div>
 
       {incidents.length ? (
-        <div className="overflow-x-auto rounded-xl border border-line bg-surface shadow-[0_1px_2px_rgba(0,0,0,0.04)]">
+        <div className="overflow-x-auto rounded-3xl bg-surface shadow-soft">
           <table className="w-full min-w-[960px] text-left text-sm">
             <thead className="border-b border-line bg-surface-2/60 text-[11px] uppercase tracking-wider text-muted">
               <tr>

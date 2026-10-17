@@ -9,7 +9,7 @@ import { CreateKeyForm } from "./CreateKeyForm";
 
 function Code({ children }: { children: string }) {
   return (
-    <pre className="overflow-x-auto rounded-lg border border-line bg-surface-2 p-3 text-xs leading-relaxed text-fg">
+    <pre className="overflow-x-auto rounded-2xl bg-navy p-4 text-xs leading-relaxed text-blue-100">
       <code>{children}</code>
     </pre>
   );
@@ -93,7 +93,7 @@ export default async function Integrations() {
                         <td className="py-2.5 text-right">
                           {!k.revoked_at && (
                             <form action={revokeApiKeyAction.bind(null, k.id)}>
-                              <button className="rounded-md px-2 py-1 text-xs text-critical-ink hover:bg-critical-wash">
+                              <button className="rounded-full px-3 py-1 text-xs font-semibold text-critical-ink hover:bg-critical-wash">
                                 Revocar
                               </button>
                             </form>

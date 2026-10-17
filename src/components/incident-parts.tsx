@@ -1,4 +1,4 @@
-import { AudioLines, Sparkles, TriangleAlert } from "lucide-react";
+import { Sparkles, TriangleAlert } from "lucide-react";
 import { fmtOffset, pct } from "@/lib/format";
 import {
   ENTITY_LABELS,
@@ -9,36 +9,41 @@ import {
   type Segment,
   type Signal,
 } from "@/lib/types";
-import { Empty, RiskBadge } from "./ui";
+import { Empty, ShieldWaves } from "./ui";
 
-const METER = {
-  bajo: { fill: "bg-good", track: "bg-good-wash" },
-  medio: { fill: "bg-warning", track: "bg-warning-wash" },
-  alto: { fill: "bg-critical", track: "bg-critical-wash" },
-};
+const RISK_COLOR = { bajo: "var(--good)", medio: "var(--warning)", alto: "var(--critical)" };
+const RISK_HEADLINE = { bajo: "Riesgo bajo", medio: "Verifica antes de actuar", alto: "Posible estafa" };
 
+/** Tarjeta de riesgo como RiskBar de la app: titular, porcentaje grande y barra de color. */
 export function RiskMeter({ score, level }: { score: number; level: RiskLevel }) {
-  const m = METER[level];
+  const color = RISK_COLOR[level];
   return (
     <div>
       <div className="flex items-end justify-between gap-3">
         <div>
-          <div className="text-xs text-muted">Riesgo estimado</div>
-          <div className="text-5xl font-semibold leading-none">{score}</div>
+          <div className="text-xs font-semibold tracking-widest text-muted">RIESGO DE ESTAFA</div>
+          <div className="mt-0.5 text-[22px] font-bold leading-tight" style={{ color }}>
+            {RISK_HEADLINE[level]}
+          </div>
         </div>
-        <RiskBadge level={level} />
+        <div className="tabular text-[34px] font-bold leading-none" style={{ color }}>
+          {score}%
+        </div>
       </div>
       <div
-        className={`mt-3 h-2.5 w-full overflow-hidden rounded-full ${m.track}`}
+        className="mt-3 h-3 w-full overflow-hidden rounded-full bg-surface-2"
         role="meter"
         aria-valuemin={0}
         aria-valuemax={100}
         aria-valuenow={score}
         aria-label="Riesgo estimado"
       >
-        <div className={`h-full rounded-full ${m.fill} transition-all duration-500`} style={{ width: `${score}%` }} />
+        <div
+          className="h-full rounded-full transition-all duration-700"
+          style={{ width: `${score}%`, background: `linear-gradient(90deg, color-mix(in srgb, ${color} 55%, transparent), ${color})` }}
+        />
       </div>
-      <p className="mt-2 text-xs text-muted">
+      <p className="mt-2.5 text-sm text-muted">
         Estimación a partir de señales observadas. Una señal aislada no confirma un engaño.
       </p>
     </div>
@@ -61,7 +66,7 @@ export function SignalList({
       {[...signals].reverse().map((s) => {
         const seg = s.segment_id ? segIdx.get(s.segment_id) : undefined;
         return (
-          <li key={s.id} className="rounded-lg border border-line bg-surface p-3">
+          <li key={s.id} className="rounded-2xl bg-surface p-4 shadow-soft">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <span className="text-sm font-semibold">{SIGNAL_LABELS[s.type] ?? s.type}</span>
               <span className="text-xs text-muted">
@@ -84,11 +89,23 @@ export function SignalList({
   );
 }
 
+const AGENT_SPEAKERS = new Set(["agent", "agente", "ia", "tiskz"]);
+const USER_SPEAKERS = new Set(["user", "usuario"]);
+
 /**
- * Cronología: cada fragmento transcrito (dato observado) con las señales que la
- * IA infirió de él justo debajo, marcadas como inferencia.
+ * Cronología como la transcripción de la app: burbujas de chat. El agente de
+ * Tiskz va a la derecha en azul; quien llama a la izquierda en blanco, y en
+ * rojo cuando el fragmento es sospechoso. Debajo, las señales que infirió la IA.
  */
-export function Timeline({ segments, signals }: { segments: Segment[]; signals: Signal[] }) {
+export function Timeline({
+  segments,
+  signals,
+  callerLabel = "Llamante",
+}: {
+  segments: Segment[];
+  signals: Signal[];
+  callerLabel?: string;
+}) {
   if (!segments.length) return <Empty>Aún no hay fragmentos transcritos.</Empty>;
   const bySegment = new Map<string, Signal[]>();
   for (const s of signals) {
@@ -96,49 +113,64 @@ export function Timeline({ segments, signals }: { segments: Segment[]; signals: 
     bySegment.set(s.segment_id, [...(bySegment.get(s.segment_id) ?? []), s]);
   }
   return (
-    <ol className="relative">
-      {segments.map((seg, i) => {
+    <ol className="space-y-4">
+      {segments.map((seg) => {
         const flags = bySegment.get(seg.id) ?? [];
-        const flagged = flags.length > 0;
-        const last = i === segments.length - 1;
+        const speaker = (seg.speaker ?? "").toLowerCase();
+        const fromAgent = AGENT_SPEAKERS.has(speaker);
+        const fromUser = USER_SPEAKERS.has(speaker);
+        const flagged = !fromAgent && (seg.flagged || flags.length > 0);
+        const note = seg.text.startsWith("(");
         return (
-          <li key={seg.id} id={`seg-${seg.id}`} className="relative grid scroll-mt-24 grid-cols-[3rem_1.5rem_1fr] gap-x-2">
-            <span className="tabular pt-2 text-right text-xs text-muted">{fmtOffset(seg.t_offset)}</span>
-            <span className="relative flex justify-center">
-              {!last && <span className="absolute top-7 bottom-0 w-px bg-line" aria-hidden />}
-              <span
-                className={`relative mt-1.5 grid h-6 w-6 place-items-center rounded-full border ${
-                  flagged ? "border-warning bg-warning-wash text-warning-ink" : "border-line bg-surface text-muted"
-                }`}
-              >
-                {flagged ? <TriangleAlert size={12} aria-hidden /> : <AudioLines size={12} aria-hidden />}
-              </span>
-            </span>
-            <div className={`min-w-0 ${last ? "" : "pb-5"}`}>
-              <div className="rounded-lg border border-line bg-surface px-3 py-2">
-                {seg.speaker && (
-                  <div className="mb-0.5 text-[11px] font-medium uppercase tracking-wider text-muted">{seg.speaker}</div>
-                )}
-                <p className={`text-sm ${seg.text.startsWith("(") ? "italic text-muted" : "text-fg"}`}>{seg.text}</p>
-              </div>
-              {flags.length > 0 && (
-                <ul className="mt-2 space-y-1.5">
-                  {flags.map((f) => (
-                    <li key={f.id} className="flex gap-2 text-xs">
-                      <Sparkles size={13} className="mt-0.5 shrink-0 text-warning-ink" aria-hidden />
-                      <span className="text-fg-2">
-                        <span className="font-medium text-fg">{SIGNAL_LABELS[f.type] ?? f.type}</span>
-                        <span className="text-muted">
-                          {" "}
-                          · {f.source === "ia" ? "IA" : "Reglas"} {pct(f.confidence)}
-                        </span>
-                        <span className="block">{f.explanation}</span>
-                      </span>
-                    </li>
-                  ))}
-                </ul>
+          <li
+            key={seg.id}
+            id={`seg-${seg.id}`}
+            className={`flex scroll-mt-24 flex-col ${fromAgent ? "items-end" : "items-start"}`}
+          >
+            <div className="flex items-center gap-1.5 px-2 pb-1 text-[13px] font-semibold">
+              {fromAgent ? (
+                <span className="flex items-center gap-1 text-accent">
+                  <ShieldWaves size={15} />
+                  Tiskz IA
+                </span>
+              ) : flagged ? (
+                <span className="flex items-center gap-1 text-critical">
+                  <TriangleAlert size={14} aria-hidden />
+                  {callerLabel} · sospechoso
+                </span>
+              ) : (
+                <span className="text-muted">{fromUser ? "Usuario" : callerLabel}</span>
               )}
+              <span className="tabular font-normal text-muted">· {fmtOffset(seg.t_offset)}</span>
             </div>
+            <div
+              className={`max-w-[34rem] px-4 py-3 text-[15px] leading-relaxed ${
+                fromAgent
+                  ? "rounded-[22px] rounded-br-md bg-agent text-white"
+                  : flagged
+                    ? "rounded-[22px] rounded-bl-md border-[1.5px] border-critical/50 bg-critical-wash text-critical-ink"
+                    : "rounded-[22px] rounded-bl-md bg-surface text-fg shadow-soft"
+              } ${note ? "italic opacity-80" : ""}`}
+            >
+              {seg.text}
+            </div>
+            {flags.length > 0 && (
+              <ul className="mt-2 max-w-[34rem] space-y-1.5 px-2">
+                {flags.map((f) => (
+                  <li key={f.id} className="flex gap-2 text-xs">
+                    <Sparkles size={13} className="mt-0.5 shrink-0 text-accent" aria-hidden />
+                    <span className="text-fg-2">
+                      <span className="font-semibold text-fg">{SIGNAL_LABELS[f.type] ?? f.type}</span>
+                      <span className="text-muted">
+                        {" "}
+                        · {f.source === "ia" ? "IA" : "Reglas"} {pct(f.confidence)}
+                      </span>
+                      <span className="block">{f.explanation}</span>
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
           </li>
         );
       })}

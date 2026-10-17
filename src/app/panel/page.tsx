@@ -15,7 +15,7 @@ import type { ReactNode } from "react";
 import { IncidentsByDayChart, SignalBarChart } from "@/components/charts";
 import { LinkGraph } from "@/components/LinkGraph";
 import { LinkReasons } from "@/components/links-ui";
-import { Card, Empty, PageHeader, Pill, RiskBadge, RiskIcon, SignalChip } from "@/components/ui";
+import { Card, Empty, IconBubble, RiskBadge, RiskIcon, SignalChip } from "@/components/ui";
 import { fmtDateTime, fmtDay, pct } from "@/lib/format";
 import { requireAnalyst } from "@/lib/panel";
 import { caseCode, dashboardData } from "@/lib/repo";
@@ -28,9 +28,9 @@ function Delta({ now, prev }: { now: number; prev: number }) {
   const diff = now - prev;
   const Icon = diff > 0 ? ArrowUpRight : diff < 0 ? ArrowDownRight : Minus;
   return (
-    <span className="inline-flex items-center gap-1 text-xs text-fg-2">
+    <span className="inline-flex items-center gap-1 text-xs text-muted">
       <Icon size={13} aria-hidden />
-      <span className="tabular font-medium text-fg">
+      <span className="tabular font-semibold text-fg">
         {diff > 0 ? "+" : ""}
         {diff}
       </span>
@@ -39,15 +39,26 @@ function Delta({ now, prev }: { now: number; prev: number }) {
   );
 }
 
-function Kpi({ icon, label, value, footer }: { icon: ReactNode; label: string; value: number; footer: ReactNode }) {
+/** Tarjeta de indicador como StatCard de la app: ícono en círculo, número grande y etiqueta. */
+function Kpi({
+  icon,
+  tone,
+  label,
+  value,
+  footer,
+}: {
+  icon: ReactNode;
+  tone: "accent" | "good" | "warning" | "critical";
+  label: string;
+  value: number;
+  footer: ReactNode;
+}) {
   return (
-    <div className="bg-surface p-4 sm:p-5">
-      <div className="flex items-center gap-2 text-xs font-medium text-muted">
-        {icon}
-        {label}
-      </div>
-      <div className="mt-2 text-3xl font-semibold tracking-tight">{value}</div>
-      <div className="mt-1.5">{footer}</div>
+    <div className="rounded-[22px] bg-surface p-4 shadow-soft sm:p-5">
+      <IconBubble tone={tone}>{icon}</IconBubble>
+      <div className="mt-3 text-[28px] font-bold leading-none tracking-tight">{value}</div>
+      <div className="mt-1 text-sm text-muted">{label}</div>
+      <div className="mt-2">{footer}</div>
     </div>
   );
 }
@@ -55,7 +66,7 @@ function Kpi({ icon, label, value, footer }: { icon: ReactNode; label: string; v
 function AttentionRow({ href, icon, label, count }: { href: string; icon: ReactNode; label: string; count: number }) {
   return (
     <li>
-      <Link href={href} className="flex items-center gap-3 rounded-lg px-2 py-2 text-sm hover:bg-surface-2">
+      <Link href={href} className="flex items-center gap-3 rounded-2xl px-2 py-2.5 text-sm hover:bg-accent-wash">
         {icon}
         <span className="flex-1 text-fg-2">{label}</span>
         <span className="tabular font-medium">{count}</span>
@@ -77,51 +88,58 @@ export default async function Dashboard() {
 
   return (
     <>
-      <PageHeader
-        crumbs={[{ href: "/panel", label: "Análisis" }]}
-        title="Resumen"
-        description="Incidentes que sus titulares decidieron compartir con esta organización. Los vínculos son hipótesis para revisar, no atribuciones de identidad."
-        actions={
-          <>
-            <Pill>Últimos 14 días</Pill>
+      <section className="relative overflow-hidden rounded-[36px] bg-brand px-6 pt-7 pb-24 text-white sm:px-9 sm:pt-9">
+        <div aria-hidden className="pointer-events-none absolute -top-24 -right-16 h-72 w-72 rounded-full bg-white/10" />
+        <div className="relative flex flex-wrap items-start justify-between gap-5">
+          <div className="max-w-2xl">
+            <div className="text-sm font-medium text-white/80">Panel de análisis</div>
+            <h1 className="mt-1 text-[30px] font-bold leading-tight tracking-tight">Resumen</h1>
+            <p className="mt-2 text-[15px] leading-relaxed text-white/85">
+              Incidentes que sus titulares decidieron compartir con esta organización. Los vínculos son hipótesis para
+              revisar, no atribuciones de identidad.
+            </p>
+          </div>
+          <div className="no-print flex flex-wrap items-center gap-2">
+            <span className="rounded-full bg-white/20 px-3.5 py-1.5 text-sm font-semibold">Últimos 14 días</span>
             <Link
               href="/panel/vinculos"
-              className="inline-flex items-center gap-2 rounded-lg bg-accent px-3 py-1.5 text-sm font-medium text-white hover:bg-accent-ink"
+              className="inline-flex items-center gap-2 rounded-full bg-white px-4 py-2 text-sm font-semibold text-accent-ink hover:bg-blue-100"
             >
-              <Network size={15} aria-hidden />
+              <Network size={16} aria-hidden />
               Revisar vínculos
             </Link>
-          </>
-        }
-      />
+          </div>
+        </div>
+      </section>
 
-      <section
-        aria-label="Indicadores"
-        className="grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-line bg-line shadow-[0_1px_2px_rgba(0,0,0,0.04)] lg:grid-cols-4"
-      >
+      <section aria-label="Indicadores" className="relative -mt-16 grid grid-cols-2 gap-3 px-3 sm:px-5 lg:grid-cols-4">
         <Kpi
-          icon={<FolderOpen size={14} aria-hidden />}
+          icon={<FolderOpen size={18} aria-hidden />}
+          tone="accent"
           label="Casos compartidos"
           value={data.kpis.total}
           footer={<Delta now={data.period.cases.now} prev={data.period.cases.prev} />}
         />
         <Kpi
-          icon={<RiskIcon level="alto" size={11} />}
+          icon={<ShieldAlert size={18} aria-hidden />}
+          tone="critical"
           label="Riesgo alto"
           value={data.kpis.high}
           footer={<Delta now={data.period.high.now} prev={data.period.high.prev} />}
         />
         <Kpi
-          icon={<Network size={14} aria-hidden />}
+          icon={<Network size={18} aria-hidden />}
+          tone="warning"
           label="Vínculos pendientes"
           value={data.kpis.pendingLinks}
-          footer={<span className="text-xs text-fg-2">Esperan revisión humana</span>}
+          footer={<span className="text-xs text-muted">Esperan revisión humana</span>}
         />
         <Kpi
-          icon={<CircleCheck size={14} aria-hidden />}
+          icon={<CircleCheck size={18} aria-hidden />}
+          tone="good"
           label="Vínculos confirmados"
           value={data.kpis.confirmedLinks}
-          footer={<span className="text-xs text-fg-2">Posibles campañas documentadas</span>}
+          footer={<span className="text-xs text-muted">Posibles campañas</span>}
         />
       </section>
 
@@ -251,7 +269,7 @@ export default async function Dashboard() {
               <ul className="space-y-3">
                 {pending.map((l) => (
                   <li key={l.id}>
-                    <Link href="/panel/vinculos" className="block rounded-lg border border-line p-3 hover:bg-surface-2">
+                    <Link href="/panel/vinculos" className="block rounded-2xl bg-surface-2 p-3.5 hover:bg-accent-wash">
                       <div className="flex items-center justify-between gap-2">
                         <span className="text-xs text-muted">Puntaje</span>
                         <span className="tabular text-xs font-medium">{pct(l.score)}</span>
@@ -291,7 +309,7 @@ export default async function Dashboard() {
         </div>
       </div>
 
-      <section className="mt-6 overflow-hidden rounded-xl border border-line bg-surface shadow-[0_1px_2px_rgba(0,0,0,0.04)]">
+      <section className="mt-6 overflow-hidden rounded-3xl bg-surface shadow-soft">
         <div className="flex items-center justify-between gap-3 px-4 py-3 sm:px-5">
           <h2 className="text-sm font-semibold">Casos recientes</h2>
           <Link href="/panel/casos" className="text-xs font-medium text-accent-ink hover:underline">

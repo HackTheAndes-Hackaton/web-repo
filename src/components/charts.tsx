@@ -13,7 +13,7 @@ const axisTick = { fill: "var(--muted)", fontSize: 11 };
 function ChartTooltip({ active, payload, label }: TooltipContentProps<TooltipValueType, string | number>) {
   if (!active || !payload?.length) return null;
   return (
-    <div className="rounded-lg border border-line bg-surface px-3 py-2 text-xs shadow-sm">
+    <div className="rounded-2xl bg-surface px-3 py-2 text-xs shadow-soft">
       <div className="mb-1 font-medium text-fg">{label}</div>
       {payload.map((p) => (
         <div key={String(p.dataKey)} className="flex items-center gap-2 text-fg-2">

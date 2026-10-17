@@ -8,7 +8,7 @@ import { channelLabel, type AnalystStatus } from "@/lib/types";
 import { EntityTable, RiskMeter, SignalList, Timeline } from "./incident-parts";
 import { LinkReasons, LinkStatusTag } from "./links-ui";
 import { PrintButton } from "./PrintButton";
-import { buttonCls, Card, Empty, PageHeader, Pill, RiskBadge, Tag } from "./ui";
+import { buttonCls, Card, Empty, PageHeader, Pill, RiskBadge, Tag, VerdictBadge } from "./ui";
 
 const NOTE_KIND = { correccion: "Corrección", observacion: "Observación", conclusion: "Conclusión revisada" };
 const STEPS: { value: AnalystStatus; label: string }[] = [
@@ -28,10 +28,10 @@ function Property({ label, children }: { label: string; children: ReactNode }) {
   );
 }
 
-function SideSection({ title, children }: { title: string; children: ReactNode }) {
+function SideSection({ title, children }: { title?: string; children: ReactNode }) {
   return (
     <section className="border-t border-line py-4 first:border-t-0 first:pt-0">
-      <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted">{title}</h3>
+      {title && <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted">{title}</h3>}
       {children}
     </section>
   );
@@ -41,7 +41,7 @@ function SideSection({ title, children }: { title: string; children: ReactNode }
 function StatusStepper({ incidentId, current }: { incidentId: string; current: AnalystStatus }) {
   const idx = STEPS.findIndex((s) => s.value === current);
   return (
-    <ol className="flex flex-wrap items-center rounded-lg border border-line bg-surface p-0.5 text-xs">
+    <ol className="flex flex-wrap items-center rounded-full bg-surface p-1 text-xs shadow-soft">
       {STEPS.map((s, i) => {
         const done = i < idx;
         const active = i === idx;
@@ -51,7 +51,7 @@ function StatusStepper({ incidentId, current }: { incidentId: string; current: A
             <form action={setAnalystStatus.bind(null, incidentId, s.value)}>
               <button
                 aria-current={active ? "step" : undefined}
-                className={`inline-flex items-center gap-1 rounded-md px-2.5 py-1 ${
+                className={`inline-flex items-center gap-1 rounded-full px-3 py-1 ${
                   active
                     ? "bg-accent-wash font-medium text-accent-ink"
                     : done
@@ -111,6 +111,7 @@ export function IncidentReport({ detail, tab = "cronologia" }: { detail: Inciden
           <>
             <StatusStepper incidentId={incident.id} current={incident.analyst_status} />
             <RiskBadge level={incident.risk_level} score={incident.risk_score} />
+            <VerdictBadge verdict={incident.verdict} />
             <Pill icon={<Clock size={12} aria-hidden />}>
               {incident.status === "en_curso" ? "En curso · " : ""}
               {fmtDuration(incident.started_at, incident.ended_at)}
@@ -124,10 +125,10 @@ export function IncidentReport({ detail, tab = "cronologia" }: { detail: Inciden
 
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_20rem]">
         <div className="min-w-0 space-y-5">
-          <section className="rounded-xl border border-line bg-surface p-4 sm:p-5">
+          <section className="rounded-3xl bg-surface p-5 shadow-soft sm:p-6">
             {incident.summary && <p className="text-sm text-fg">{incident.summary}</p>}
             {incident.recommendation && (
-              <p className="mt-3 rounded-lg bg-accent-wash px-3 py-2 text-sm text-accent-ink">
+              <p className="mt-3 rounded-2xl bg-accent-wash px-4 py-2.5 text-sm text-accent-ink">
                 <strong>Recomendación mostrada:</strong> {incident.recommendation}
               </p>
             )}
@@ -137,22 +138,22 @@ export function IncidentReport({ detail, tab = "cronologia" }: { detail: Inciden
             </p>
           </section>
 
-          <nav className="no-print flex gap-1 overflow-x-auto border-b border-line" aria-label="Secciones del reporte">
+          <nav className="no-print flex gap-2 overflow-x-auto pb-1" aria-label="Secciones del reporte">
             {tabs.map((t) => (
               <Link
                 key={t.id}
                 href={`${here}?tab=${t.id}`}
                 scroll={false}
                 aria-current={tab === t.id ? "page" : undefined}
-                className={`-mb-px flex shrink-0 items-center gap-1.5 border-b-2 px-3 py-2 text-sm ${
+                className={`flex shrink-0 items-center gap-1.5 rounded-full px-4 py-2 text-sm ${
                   tab === t.id
-                    ? "border-accent font-medium text-fg"
-                    : "border-transparent text-fg-2 hover:text-fg"
+                    ? "bg-accent font-semibold text-white shadow-soft"
+                    : "bg-surface text-fg-2 shadow-soft hover:text-accent-ink"
                 }`}
               >
                 {t.label}
                 {t.count !== undefined && (
-                  <span className="tabular rounded-full bg-surface-2 px-1.5 text-[11px] text-muted">{t.count}</span>
+                  <span className={`tabular rounded-full px-1.5 text-[11px] font-bold ${tab === t.id ? "bg-white/25 text-white" : "bg-accent-wash text-accent-ink"}`}>{t.count}</span>
                 )}
               </Link>
             ))}
@@ -163,7 +164,7 @@ export function IncidentReport({ detail, tab = "cronologia" }: { detail: Inciden
               <p className="mb-4 text-xs text-muted">
                 Transcripción automática (puede contener errores). Debajo de cada fragmento, las señales que infirió la IA.
               </p>
-              <Timeline segments={segments} signals={signals} />
+              <Timeline segments={segments} signals={signals} callerLabel={incident.caller_name ?? "Llamante"} />
             </div>
           )}
 
@@ -182,7 +183,7 @@ export function IncidentReport({ detail, tab = "cronologia" }: { detail: Inciden
               {notes.length ? (
                 <ul className="mb-4 space-y-3">
                   {notes.map((n) => (
-                    <li key={n.id} className="rounded-lg border border-line p-3 text-sm">
+                    <li key={n.id} className="rounded-2xl bg-surface-2 p-3.5 text-sm">
                       <div className="mb-1 flex flex-wrap items-center gap-2 text-xs text-muted">
                         <Tag tone={n.kind === "conclusion" ? "accent" : "neutral"}>{NOTE_KIND[n.kind]}</Tag>
                         {n.author_name} · {fmtDateTime(n.created_at)}
@@ -212,7 +213,7 @@ export function IncidentReport({ detail, tab = "cronologia" }: { detail: Inciden
                   required
                   rows={3}
                   placeholder="Ej.: se corroboró con el banco que la cuenta fue reportada."
-                  className="w-full rounded-lg border border-line-strong bg-surface px-3 py-2 text-sm outline-none focus:border-accent"
+                  className="w-full rounded-2xl border border-line bg-surface px-4 py-3 text-sm outline-none focus:border-accent focus:ring-2 focus:ring-blue-100"
                 />
                 <button className={buttonCls.secondary}>Agregar</button>
               </form>
@@ -221,13 +222,20 @@ export function IncidentReport({ detail, tab = "cronologia" }: { detail: Inciden
         </div>
 
         <aside className="space-y-0 lg:border-l lg:border-line lg:pl-6">
-          <SideSection title="Riesgo">
+          <SideSection>
             <RiskMeter score={incident.risk_score} level={incident.risk_level} />
           </SideSection>
 
           <SideSection title="Propiedades">
             <dl className="divide-y divide-line">
               <Property label="Persona">{owner?.name ?? "Sin registrar"}</Property>
+              {(incident.caller_e164 || incident.caller_number_raw || incident.caller_name) && (
+                <Property label="Llamante">
+                  {incident.caller_name && <span className="block font-medium">{incident.caller_name}</span>}
+                  <span className="tabular">{incident.caller_e164 ?? incident.caller_number_raw}</span>
+                  <span className="block text-xs text-muted">El número mostrado puede ser falso.</span>
+                </Property>
+              )}
               <Property label="Inicio">{fmtDateTime(incident.started_at)}</Property>
               <Property label="Fin">{incident.ended_at ? fmtDateTime(incident.ended_at) : "En curso"}</Property>
               <Property label="Canal">{channelLabel(incident.channel)}</Property>
@@ -250,7 +258,7 @@ export function IncidentReport({ detail, tab = "cronologia" }: { detail: Inciden
                     const otherId = l.incident_a === incident.id ? l.incident_b : l.incident_a;
                     const otherTitle = l.incident_a === incident.id ? l.b_title : l.a_title;
                     return (
-                      <li key={l.id} className="rounded-lg border border-line p-3">
+                      <li key={l.id} className="rounded-2xl bg-surface-2 p-3.5">
                         <div className="flex items-start justify-between gap-2">
                           <Link href={`/panel/casos/${otherId}`} className="flex gap-1.5 text-sm font-medium hover:underline">
                             <FolderOpen size={14} className="mt-0.5 shrink-0 text-muted" aria-hidden />
@@ -263,12 +271,12 @@ export function IncidentReport({ detail, tab = "cronologia" }: { detail: Inciden
                         {l.status === "pendiente" && (
                           <div className="no-print mt-2 flex gap-2">
                             <form action={reviewLink.bind(null, l.id, "confirmado")}>
-                              <button className="rounded-md border border-line px-2 py-1 text-xs hover:bg-surface-2">
+                              <button className="rounded-full border border-line px-3 py-1 text-xs font-semibold text-accent-ink hover:bg-accent-wash">
                                 Confirmar
                               </button>
                             </form>
                             <form action={reviewLink.bind(null, l.id, "descartado")}>
-                              <button className="rounded-md border border-line px-2 py-1 text-xs hover:bg-surface-2">
+                              <button className="rounded-full border border-line px-3 py-1 text-xs font-semibold text-accent-ink hover:bg-accent-wash">
                                 Descartar
                               </button>
                             </form>

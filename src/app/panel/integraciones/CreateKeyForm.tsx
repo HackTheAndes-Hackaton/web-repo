@@ -18,7 +18,7 @@ export function CreateKeyForm() {
           maxLength={80}
           placeholder="Nombre del servicio (p. ej. Servidor de llamadas)"
           aria-label="Nombre de la clave"
-          className="min-w-0 flex-1 rounded-lg border border-line-strong bg-surface px-3 py-2 text-sm outline-none focus:border-accent"
+          className="min-w-0 flex-1 rounded-full border border-line bg-surface px-4 py-2.5 text-sm outline-none focus:border-accent focus:ring-2 focus:ring-blue-100"
         />
         <button className={buttonCls.primary} disabled={pending}>
           <KeyRound size={15} aria-hidden />
@@ -27,12 +27,12 @@ export function CreateKeyForm() {
       </form>
       {state.error && <p className="text-xs text-critical-ink">{state.error}</p>}
       {state.key && (
-        <div role="status" className="rounded-lg border border-warning bg-warning-wash p-3 text-sm">
+        <div role="status" className="rounded-2xl border border-warning bg-warning-wash p-4 text-sm">
           <p className="font-medium text-warning-ink">
             Copia la clave de «{state.name}» ahora: no se volverá a mostrar.
           </p>
           <div className="mt-2 flex items-center gap-2">
-            <code className="tabular min-w-0 flex-1 overflow-x-auto rounded-md bg-surface px-2 py-1.5 text-xs text-fg">
+            <code className="tabular min-w-0 flex-1 overflow-x-auto rounded-full bg-surface px-3 py-2 text-xs text-fg">
               {state.key}
             </code>
             <button
