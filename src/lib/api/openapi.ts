@@ -140,16 +140,16 @@ export function buildOpenApi(baseUrl: string) {
   return {
     openapi: "3.1.0",
     info: {
-      title: "Centinela API",
+      title: "Tiskz API",
       version: "1.0.0",
       description:
-        "API gateway del panel de Centinela. La consumen el servidor de llamadas y el servicio de IA para registrar incidentes, transcripciones, señales, datos observados y muestras de voz.",
+        "API gateway del panel de Tiskz. La consumen el servidor de llamadas y el servicio de IA para registrar incidentes, transcripciones, señales, datos observados y muestras de voz.",
     },
     servers: [{ url: `${baseUrl}/api/v1` }],
     security: [{ bearerAuth: [] }, { apiKeyHeader: [] }],
     components: {
       securitySchemes: {
-        bearerAuth: { type: "http", scheme: "bearer", description: "Authorization: Bearer cen_..." },
+        bearerAuth: { type: "http", scheme: "bearer", description: "Authorization: Bearer tkz_..." },
         apiKeyHeader: { type: "apiKey", in: "header", name: "X-API-Key" },
       },
       schemas,

@@ -1,4 +1,4 @@
-# Centinela (nombre provisional) — panel y API
+# Tiskz — panel y API
 
 Este proyecto tiene dos partes:
 
@@ -30,7 +30,9 @@ ficticios. Se vuelven a cargar con **Restablecer datos de demo**, que conserva l
 
 ## Pasar a Supabase
 
-1. Crea el proyecto y copia la cadena del **Transaction pooler** (Project Settings → Database → Connection string).
+1. Crea el proyecto y copia la cadena del **Session pooler** (botón **Connect** → Connection string). Usa esa y no la
+   conexión directa (`db.<ref>.supabase.co`, solo IPv6) ni el Transaction pooler (puerto 6543, se cuelga con consultas
+   en paralelo de `postgres.js`).
 2. Ponla en `DATABASE_URL` dentro de `.env.local` (ver `.env.example`).
 3. `npm run db:migrate`, o pega `supabase/migrations/*.sql` en el SQL Editor. Si no lo haces, la app aplica el
    esquema sola al arrancar.
@@ -43,7 +45,7 @@ leer nada, incluidos los embeddings de voz. Solo este servidor accede a Postgres
 1. Importa el repositorio en Vercel. No hace falta configurar nada del build: lo detecta como Next.js.
 2. Necesitas una base accesible desde internet: el Postgres local no sirve en Vercel. Cualquiera de estas dos opciones
    funciona:
-   - Agrega `DATABASE_URL` (la del Transaction pooler de Supabase) en **Settings → Environment Variables**.
+   - Agrega `DATABASE_URL` (la del Session pooler de Supabase) en **Settings → Environment Variables**.
    - Conecta la integración de Supabase desde el Marketplace de Vercel; la app usa su `POSTGRES_URL`.
 3. Despliega. En la primera solicitud se crea el esquema y se cargan los datos de demo.
 
@@ -55,8 +57,8 @@ En Vercel el panel se actualiza cada 15 s en lugar de usar SSE, porque cada func
 la base solo se guarda su hash. Se envía de cualquiera de estas dos formas:
 
 ```
-Authorization: Bearer cen_...
-X-API-Key: cen_...
+Authorization: Bearer tkz_...
+X-API-Key: tkz_...
 ```
 
 **Especificación.** `GET /api/v1/openapi.json` (OpenAPI 3.1, importable en Postman o Swagger) y `GET /api/v1` son

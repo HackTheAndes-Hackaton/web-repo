@@ -19,30 +19,30 @@ const FLOW = (base: string) => [
   {
     title: "1. Crear el incidente cuando empieza la llamada",
     code: `curl -X POST ${base}/incidents \\
-  -H "Authorization: Bearer $CENTINELA_API_KEY" \\
+  -H "Authorization: Bearer $TISKZ_API_KEY" \\
   -H "Content-Type: application/json" \\
   -d '{"external_id":"llamada-8841","org_id":"org_uav","title":"Llamada entrante","channel":"llamada"}'`,
   },
   {
     title: "2. Enviar la transcripción (uno o varios fragmentos)",
     code: `curl -X POST ${base}/incidents/{id}/segments \\
-  -H "Authorization: Bearer $CENTINELA_API_KEY" -H "Content-Type: application/json" \\
+  -H "Authorization: Bearer $TISKZ_API_KEY" -H "Content-Type: application/json" \\
   -d '[{"speaker":"interlocutor","t_offset":4,"text":"Soy tu sobrino, cambié de número."}]'`,
   },
   {
     title: "3. Registrar señales y datos detectados por la IA",
     code: `curl -X POST ${base}/incidents/{id}/signals \\
-  -H "Authorization: Bearer $CENTINELA_API_KEY" -H "Content-Type: application/json" \\
+  -H "Authorization: Bearer $TISKZ_API_KEY" -H "Content-Type: application/json" \\
   -d '[{"type":"suplantacion","evidence":"Soy tu sobrino","explanation":"Se presenta como familiar sin forma de verificarlo.","confidence":0.8}]'
 
 curl -X POST ${base}/incidents/{id}/entities \\
-  -H "Authorization: Bearer $CENTINELA_API_KEY" -H "Content-Type: application/json" \\
+  -H "Authorization: Bearer $TISKZ_API_KEY" -H "Content-Type: application/json" \\
   -d '[{"kind":"telefono","value":"55 2841 7730","provenance":"mostrado"}]'`,
   },
   {
     title: "4. Cerrar el incidente con el riesgo final",
     code: `curl -X PATCH ${base}/incidents/{id} \\
-  -H "Authorization: Bearer $CENTINELA_API_KEY" -H "Content-Type: application/json" \\
+  -H "Authorization: Bearer $TISKZ_API_KEY" -H "Content-Type: application/json" \\
   -d '{"status":"finalizado","ended_at":"2026-10-17T19:05:00Z","risk_score":82,"summary":"Posible suplantación con solicitud de dinero."}'`,
   },
 ];
@@ -135,7 +135,7 @@ export default async function Integrations() {
               <div>
                 <dt className="text-xs text-muted">Autenticación</dt>
                 <dd className="text-fg-2">
-                  <code className="text-xs">Authorization: Bearer cen_…</code> o <code className="text-xs">X-API-Key: cen_…</code>
+                  <code className="text-xs">Authorization: Bearer tkz_…</code> o <code className="text-xs">X-API-Key: tkz_…</code>
                 </dd>
               </div>
               <div>
