@@ -15,7 +15,7 @@ import type { ReactNode } from "react";
 import { IncidentsByDayChart, SignalBarChart } from "@/components/charts";
 import { LinkGraph } from "@/components/LinkGraph";
 import { LinkReasons } from "@/components/links-ui";
-import { Card, Empty, PageHeader, Pill, RiskBadge, RiskIcon, SignalChip } from "@/components/ui";
+import { Card, Empty, IconBubble, PulsingShield, RiskBadge, RiskIcon, SignalChip } from "@/components/ui";
 import { fmtDateTime, fmtDay, pct } from "@/lib/format";
 import { requireAnalyst } from "@/lib/panel";
 import { caseCode, dashboardData } from "@/lib/repo";
@@ -39,15 +39,25 @@ function Delta({ now, prev }: { now: number; prev: number }) {
   );
 }
 
-function Kpi({ icon, label, value, footer }: { icon: ReactNode; label: string; value: number; footer: ReactNode }) {
+function Kpi({
+  icon,
+  tone,
+  label,
+  value,
+  footer,
+}: {
+  icon: ReactNode;
+  tone: "accent" | "good" | "warning" | "critical";
+  label: string;
+  value: number;
+  footer: ReactNode;
+}) {
   return (
-    <div className="bg-surface p-4 sm:p-5">
-      <div className="flex items-center gap-2 text-xs font-medium text-muted">
-        {icon}
-        {label}
-      </div>
-      <div className="mt-2 text-3xl font-semibold tracking-tight">{value}</div>
-      <div className="mt-1.5">{footer}</div>
+    <div className="rounded-3xl bg-surface p-5 shadow-soft">
+      <IconBubble tone={tone}>{icon}</IconBubble>
+      <div className="mt-4 text-4xl font-bold tracking-tight">{value}</div>
+      <div className="mt-0.5 text-sm font-medium text-fg-2">{label}</div>
+      <div className="mt-2">{footer}</div>
     </div>
   );
 }
@@ -55,7 +65,7 @@ function Kpi({ icon, label, value, footer }: { icon: ReactNode; label: string; v
 function AttentionRow({ href, icon, label, count }: { href: string; icon: ReactNode; label: string; count: number }) {
   return (
     <li>
-      <Link href={href} className="flex items-center gap-3 rounded-lg px-2 py-2 text-sm hover:bg-surface-2">
+      <Link href={href} className="flex items-center gap-3 rounded-2xl px-2.5 py-2.5 text-sm hover:bg-surface-2">
         {icon}
         <span className="flex-1 text-fg-2">{label}</span>
         <span className="tabular font-medium">{count}</span>
@@ -77,51 +87,63 @@ export default async function Dashboard() {
 
   return (
     <>
-      <PageHeader
-        crumbs={[{ href: "/panel", label: "Análisis" }]}
-        title="Resumen"
-        description="Incidentes que sus titulares decidieron compartir con esta organización. Los vínculos son hipótesis para revisar, no atribuciones de identidad."
-        actions={
-          <>
-            <Pill>Últimos 14 días</Pill>
-            <Link
-              href="/panel/vinculos"
-              className="inline-flex items-center gap-2 rounded-lg bg-accent px-3 py-1.5 text-sm font-medium text-white hover:bg-accent-ink"
-            >
-              <Network size={15} aria-hidden />
-              Revisar vínculos
-            </Link>
-          </>
-        }
-      />
+      <section className="bg-brand relative overflow-hidden rounded-[2rem] px-6 pt-7 pb-20 text-white shadow-glow sm:px-9">
+        <div className="pointer-events-none absolute -top-24 -right-16 h-72 w-72 rounded-full bg-white/10 blur-2xl" aria-hidden />
+        <div className="relative flex flex-wrap items-center justify-between gap-6">
+          <div className="min-w-0 max-w-2xl">
+            <div className="text-xs font-semibold uppercase tracking-widest text-white/70">Análisis</div>
+            <h1 className="mt-1 text-4xl font-bold tracking-tight">Resumen</h1>
+            <p className="mt-2 text-sm text-white/85">
+              Incidentes que sus titulares decidieron compartir con esta organización. Los vínculos son hipótesis para
+              revisar, no atribuciones de identidad.
+            </p>
+            <div className="no-print mt-5 flex flex-wrap items-center gap-2">
+              <span className="bg-glass inline-flex items-center rounded-full px-3.5 py-1.5 text-xs font-semibold ring-1 ring-white/25">
+                Últimos 14 días
+              </span>
+              <Link
+                href="/panel/vinculos"
+                className="inline-flex items-center gap-2 rounded-full bg-white px-4 py-1.5 text-sm font-semibold text-accent-ink shadow-soft hover:bg-accent-wash"
+              >
+                <Network size={15} aria-hidden />
+                Revisar vínculos
+              </Link>
+            </div>
+          </div>
+          <div className="hidden sm:block">
+            <PulsingShield size={150} />
+          </div>
+        </div>
+      </section>
 
-      <section
-        aria-label="Indicadores"
-        className="grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-line bg-line shadow-[0_1px_2px_rgba(0,0,0,0.04)] lg:grid-cols-4"
-      >
+      <section aria-label="Indicadores" className="relative -mt-14 grid grid-cols-2 gap-4 px-2 sm:px-4 lg:grid-cols-4">
         <Kpi
-          icon={<FolderOpen size={14} aria-hidden />}
+          icon={<FolderOpen size={18} aria-hidden />}
+          tone="accent"
           label="Casos compartidos"
           value={data.kpis.total}
           footer={<Delta now={data.period.cases.now} prev={data.period.cases.prev} />}
         />
         <Kpi
-          icon={<RiskIcon level="alto" size={11} />}
+          icon={<ShieldAlert size={18} aria-hidden />}
+          tone="critical"
           label="Riesgo alto"
           value={data.kpis.high}
           footer={<Delta now={data.period.high.now} prev={data.period.high.prev} />}
         />
         <Kpi
-          icon={<Network size={14} aria-hidden />}
+          icon={<Network size={18} aria-hidden />}
+          tone="warning"
           label="Vínculos pendientes"
           value={data.kpis.pendingLinks}
-          footer={<span className="text-xs text-fg-2">Esperan revisión humana</span>}
+          footer={<span className="text-xs text-muted">Esperan revisión humana</span>}
         />
         <Kpi
-          icon={<CircleCheck size={14} aria-hidden />}
+          icon={<CircleCheck size={18} aria-hidden />}
+          tone="good"
           label="Vínculos confirmados"
           value={data.kpis.confirmedLinks}
-          footer={<span className="text-xs text-fg-2">Posibles campañas documentadas</span>}
+          footer={<span className="text-xs text-muted">Posibles campañas documentadas</span>}
         />
       </section>
 
@@ -163,14 +185,14 @@ export default async function Dashboard() {
             </span>
           </div>
           <div
-            className="mt-2 h-2 overflow-hidden rounded-full bg-accent-wash"
+            className="mt-2 h-3 overflow-hidden rounded-full bg-surface-2"
             role="progressbar"
             aria-valuenow={Math.round(reviewedPct * 100)}
             aria-valuemin={0}
             aria-valuemax={100}
             aria-label="Casos cerrados"
           >
-            <div className="h-full rounded-full bg-accent" style={{ width: `${reviewedPct * 100}%` }} />
+            <div className="bg-brand h-full rounded-full" style={{ width: `${reviewedPct * 100}%` }} />
           </div>
           <ul className="mt-4 space-y-0.5">
             <AttentionRow
@@ -210,10 +232,10 @@ export default async function Dashboard() {
                   <RiskIcon level={r.level} />
                   {RISK_NAME[r.level]}
                 </span>
-                <span className="h-1.5 overflow-hidden rounded-full bg-surface-2">
+                <span className="h-2.5 overflow-hidden rounded-full bg-surface-2">
                   <span
                     className={`block h-full rounded-full ${
-                      r.level === "alto" ? "bg-critical" : r.level === "medio" ? "bg-warning" : "bg-good"
+                      r.level === "alto" ? "bg-danger" : r.level === "medio" ? "bg-warning" : "bg-safe"
                     }`}
                     style={{ width: `${(r.n / total) * 100}%` }}
                   />
@@ -251,10 +273,10 @@ export default async function Dashboard() {
               <ul className="space-y-3">
                 {pending.map((l) => (
                   <li key={l.id}>
-                    <Link href="/panel/vinculos" className="block rounded-lg border border-line p-3 hover:bg-surface-2">
+                    <Link href="/panel/vinculos" className="block rounded-2xl bg-surface-2/70 p-3.5 hover:bg-accent-wash">
                       <div className="flex items-center justify-between gap-2">
                         <span className="text-xs text-muted">Puntaje</span>
-                        <span className="tabular text-xs font-medium">{pct(l.score)}</span>
+                        <span className="tabular rounded-full bg-warning-wash px-2 text-xs font-bold text-warning-ink">{pct(l.score)}</span>
                       </div>
                       <div className="mt-1 text-sm font-medium leading-snug">
                         {titleOf.get(l.incident_a)} <span className="text-muted">↔</span> {titleOf.get(l.incident_b)}
@@ -291,16 +313,16 @@ export default async function Dashboard() {
         </div>
       </div>
 
-      <section className="mt-6 overflow-hidden rounded-xl border border-line bg-surface shadow-[0_1px_2px_rgba(0,0,0,0.04)]">
-        <div className="flex items-center justify-between gap-3 px-4 py-3 sm:px-5">
-          <h2 className="text-sm font-semibold">Casos recientes</h2>
+      <section className="mt-6 overflow-hidden rounded-3xl bg-surface shadow-soft">
+        <div className="flex items-center justify-between gap-3 px-5 py-4 sm:px-6">
+          <h2 className="text-[15px] font-bold">Casos recientes</h2>
           <Link href="/panel/casos" className="text-xs font-medium text-accent-ink hover:underline">
             Ver todos →
           </Link>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full min-w-[680px] text-left text-sm">
-            <thead className="border-y border-line bg-surface-2/60 text-[11px] uppercase tracking-wider text-muted">
+            <thead className="bg-surface-2/70 text-[11px] uppercase tracking-wider text-muted">
               <tr>
                 <th className="px-4 py-2 font-medium sm:px-5">Caso</th>
                 <th className="px-4 py-2 font-medium">Señales</th>
@@ -310,7 +332,7 @@ export default async function Dashboard() {
             </thead>
             <tbody>
               {data.incidents.slice(0, 5).map((i) => (
-                <tr key={i.id} className="border-b border-line last:border-0 hover:bg-surface-2/60">
+                <tr key={i.id} className="border-b border-line last:border-0 hover:bg-accent-wash/50">
                   <td className="px-4 py-3 sm:px-5">
                     <Link href={`/panel/casos/${i.id}`} className="font-medium hover:underline">
                       <span className="tabular mr-2 text-xs text-muted">{caseCode(i.id)}</span>

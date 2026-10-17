@@ -1,53 +1,41 @@
 @import "tailwindcss";
 
+/*
+ * Misma paleta que la app móvil de Tiskz:
+ * marca en degradado azul profundo → azul → celeste, fondo azulado con tarjetas blancas,
+ * y riesgo verde (bajo) · ámbar (medio) · rojo (alto).
+ */
 :root {
   color-scheme: light;
-  --page: #f9f9f7;
-  --surface: #fcfcfb;
-  --surface-2: #f2f1ed;
-  --sidebar: #f3f2ee;
-  --fg: #0b0b0b;
-  --fg-2: #52514e;
-  --muted: #6f6d68;
-  --line: #e1e0d9;
-  --line-strong: #c3c2b7;
-  --accent: #2a78d6;
-  --accent-ink: #1c5cab;
-  --accent-wash: #e6f0fc;
-  --good: #0ca30c;
-  --good-ink: #006300;
-  --warning: #fab219;
-  --warning-ink: #8a5a00;
-  --critical: #d03b3b;
-  --critical-ink: #a32020;
-  --critical-wash: #fbeaea;
-  --warning-wash: #fdf3dc;
-  --good-wash: #e5f4e5;
+  --page: #f3f6fc;
+  --surface: #ffffff;
+  --surface-2: #f1f5f9;
+  --sidebar: #0b1b4d;
+  --fg: #0f172a;
+  --fg-2: #334155;
+  --muted: #64748b;
+  --line: #e2e8f0;
+  --line-strong: #cbd5e1;
+  --accent: #2563eb;
+  --accent-ink: #1d4ed8;
+  --accent-wash: #eff6ff;
+  --good: #10b981;
+  --good-ink: #047857;
+  --good-wash: #d1fae5;
+  --warning: #f59e0b;
+  --warning-ink: #b45309;
+  --warning-wash: #fef3c7;
+  --critical: #e11d48;
+  --critical-ink: #9f1239;
+  --critical-wash: #ffe4e6;
+  --brand-1: #1e3a8a;
+  --brand-2: #2563eb;
+  --brand-3: #38bdf8;
+  --navy: #0b1b4d;
+  --shadow: 30 58 138;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    color-scheme: dark;
-    --page: #0d0d0d;
-    --surface: #1a1a19;
-    --surface-2: #232321;
-    --sidebar: #141413;
-    --fg: #f0efec;
-    --fg-2: #c3c2b7;
-    --muted: #9a988f;
-    --line: #2c2c2a;
-    --line-strong: #383835;
-    --accent: #3987e5;
-    --accent-ink: #86b6ef;
-    --accent-wash: #16263a;
-    --good-ink: #4cc44c;
-    --warning-ink: #fab219;
-    --critical-ink: #f08a8a;
-    --critical-wash: #3a1b1b;
-    --warning-wash: #3a2e12;
-    --good-wash: #15301a;
-  }
-}
+/* Siempre claro, igual que la app móvil (blanco y azul). */
 
 @theme inline {
   --color-page: var(--page);
@@ -71,7 +59,44 @@
   --color-critical: var(--critical);
   --color-critical-ink: var(--critical-ink);
   --color-critical-wash: var(--critical-wash);
+  --color-navy: var(--navy);
   --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+/* Sombra suave teñida de azul, como las tarjetas del móvil. */
+@utility shadow-soft {
+  box-shadow:
+    0 1px 2px rgb(var(--shadow) / 0.06),
+    0 12px 32px -14px rgb(var(--shadow) / 0.22);
+}
+
+@utility shadow-glow {
+  box-shadow: 0 10px 24px -8px rgb(37 99 235 / 0.55);
+}
+
+@utility shadow-glow-critical {
+  box-shadow: 0 10px 24px -8px rgb(225 29 72 / 0.5);
+}
+
+/* Degradados de marca y de riesgo (los mismos de la app). */
+@utility bg-brand {
+  background-image: linear-gradient(135deg, var(--brand-1) 0%, var(--brand-2) 55%, var(--brand-3) 100%);
+}
+
+@utility bg-brand-deep {
+  background-image: linear-gradient(180deg, var(--navy) 0%, var(--brand-1) 100%);
+}
+
+@utility bg-danger {
+  background-image: linear-gradient(135deg, #9f1239 0%, #e11d48 60%, #fb7185 100%);
+}
+
+@utility bg-safe {
+  background-image: linear-gradient(135deg, #047857 0%, #10b981 60%, #6ee7b7 100%);
+}
+
+@utility bg-glass {
+  background-image: linear-gradient(135deg, rgb(255 255 255 / 0.28), rgb(255 255 255 / 0.1));
 }
 
 body {
@@ -82,6 +107,45 @@ body {
 
 .tabular {
   font-variant-numeric: tabular-nums;
+}
+
+/* Anillos que se expanden y desvanecen alrededor del escudo (como en el móvil). */
+@keyframes tiskz-ring {
+  0% {
+    transform: scale(0.55);
+    opacity: 0.55;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 0;
+  }
+}
+
+.pulse-ring {
+  animation: tiskz-ring 2.4s linear infinite;
+}
+
+/* Barras de audio animadas: "en vivo". */
+@keyframes tiskz-wave {
+  0%,
+  100% {
+    transform: scaleY(0.35);
+  }
+  50% {
+    transform: scaleY(1);
+  }
+}
+
+.wave-bar {
+  transform-origin: center;
+  animation: tiskz-wave 0.9s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pulse-ring,
+  .wave-bar {
+    animation: none;
+  }
 }
 
 @media print {

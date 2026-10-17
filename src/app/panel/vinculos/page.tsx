@@ -14,8 +14,8 @@ function Similarity({ label, value }: { label: string; value: number | null }) {
         <span className="text-muted">{label}</span>
         <span className="tabular font-medium">{value === null ? "Sin datos" : pct(value)}</span>
       </div>
-      <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-accent-wash">
-        {value !== null && <div className="h-full rounded-full bg-accent" style={{ width: `${Math.max(0, value) * 100}%` }} />}
+      <div className="mt-1 h-2 overflow-hidden rounded-full bg-surface-2">
+        {value !== null && <div className="bg-brand h-full rounded-full" style={{ width: `${Math.max(0, value) * 100}%` }} />}
       </div>
     </div>
   );
@@ -31,7 +31,7 @@ function LinkCard({ l }: { l: LinkView }) {
     </Link>
   );
   return (
-    <li className="rounded-xl border border-line bg-surface p-4 shadow-[0_1px_2px_rgba(0,0,0,0.04)]">
+    <li className="rounded-3xl bg-surface p-5 shadow-soft">
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-2">
           <LinkStatusTag status={l.status} />
@@ -61,14 +61,14 @@ function LinkCard({ l }: { l: LinkView }) {
           <Similarity label="Similitud de contenido" value={l.content_sim} />
         </div>
       </div>
-      {l.note && <p className="mt-3 rounded-lg bg-accent-wash px-3 py-2 text-sm text-accent-ink">{l.note}</p>}
+      {l.note && <p className="mt-3 rounded-2xl bg-accent-wash px-4 py-2.5 text-sm text-accent-ink">{l.note}</p>}
       <form className="mt-3 flex flex-col gap-2 sm:flex-row" action={reviewLink.bind(null, l.id, l.status === "pendiente" ? "confirmado" : "pendiente")}>
         {l.status === "pendiente" ? (
           <>
             <input
               name="note"
               placeholder="Nota de revisión (opcional)"
-              className="min-w-0 flex-1 rounded-lg border border-line-strong bg-surface px-3 py-2 text-sm outline-none focus:border-accent"
+              className="min-w-0 flex-1 rounded-full border border-line bg-surface px-4 py-2 text-sm outline-none focus:border-accent focus:ring-4 focus:ring-accent/15"
             />
             <button className={buttonCls.primary}>Confirmar vínculo</button>
             <button formAction={reviewLink.bind(null, l.id, "descartado")} className={buttonCls.secondary}>
@@ -108,7 +108,10 @@ export default async function LinksPage({ searchParams }: PageProps<"/panel/vinc
       />
       <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_26rem]">
         <div className="min-w-0">
-          <nav className="mb-4 flex gap-1 border-b border-line" aria-label="Estado de los vínculos">
+          <nav
+            className="mb-5 flex w-fit max-w-full gap-1 overflow-x-auto rounded-full bg-surface p-1 shadow-soft ring-1 ring-line"
+            aria-label="Estado de los vínculos"
+          >
             {TABS.map((t) => {
               const n = links.filter((l) => l.status === t.id).length;
               return (
@@ -116,12 +119,18 @@ export default async function LinksPage({ searchParams }: PageProps<"/panel/vinc
                   key={t.id}
                   href={`/panel/vinculos?estado=${t.id}`}
                   aria-current={current === t.id ? "page" : undefined}
-                  className={`-mb-px flex items-center gap-1.5 border-b-2 px-3 py-2 text-sm ${
-                    current === t.id ? "border-accent font-medium text-fg" : "border-transparent text-fg-2 hover:text-fg"
+                  className={`flex shrink-0 items-center gap-1.5 rounded-full px-4 py-1.5 text-sm ${
+                    current === t.id ? "bg-brand font-semibold text-white shadow-glow" : "text-fg-2 hover:bg-surface-2 hover:text-fg"
                   }`}
                 >
                   {t.label}
-                  <span className="tabular rounded-full bg-surface-2 px-1.5 text-[11px] text-muted">{n}</span>
+                  <span
+                    className={`tabular rounded-full px-1.5 text-[11px] font-bold ${
+                      current === t.id ? "bg-white/25 text-white" : "bg-surface-2 text-muted"
+                    }`}
+                  >
+                    {n}
+                  </span>
                 </Link>
               );
             })}

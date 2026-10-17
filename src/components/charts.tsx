@@ -13,7 +13,7 @@ const axisTick = { fill: "var(--muted)", fontSize: 11 };
 function ChartTooltip({ active, payload, label }: TooltipContentProps<TooltipValueType, string | number>) {
   if (!active || !payload?.length) return null;
   return (
-    <div className="rounded-lg border border-line bg-surface px-3 py-2 text-xs shadow-sm">
+    <div className="rounded-2xl bg-surface px-3.5 py-2.5 text-xs shadow-soft ring-1 ring-line">
       <div className="mb-1 font-medium text-fg">{label}</div>
       {payload.map((p) => (
         <div key={String(p.dataKey)} className="flex items-center gap-2 text-fg-2">
@@ -34,7 +34,7 @@ export function IncidentsByDayChart({ data }: { data: { label: string; bajo: num
       <ul className="mb-4 flex flex-wrap gap-x-5 gap-y-1 text-xs text-fg-2" aria-label="Leyenda">
         {RISK_SERIES.map((s, i) => (
           <li key={s.key} className="flex items-center gap-1.5">
-            <span className="h-2.5 w-2.5 rounded-sm" style={{ background: s.color }} aria-hidden />
+            <span className="h-2.5 w-2.5 rounded-full" style={{ background: s.color }} aria-hidden />
             {s.label}
             <span className="tabular font-medium text-fg">{totals[i]}</span>
             <span className="tabular text-muted">({Math.round((totals[i] / all) * 100)}%)</span>
@@ -57,8 +57,8 @@ export function IncidentsByDayChart({ data }: { data: { label: string; bajo: num
                 fill={s.color}
                 stroke="var(--surface)"
                 strokeWidth={2}
-                maxBarSize={24}
-                radius={i === RISK_SERIES.length - 1 ? [4, 4, 0, 0] : 0}
+                maxBarSize={22}
+                radius={i === RISK_SERIES.length - 1 ? [8, 8, 0, 0] : 0}
               />
             ))}
           </BarChart>
@@ -73,15 +73,22 @@ export function SignalBarChart({ data }: { data: { label: string; n: number }[] 
     <div style={{ height: Math.max(120, data.length * 36) }}>
       <ResponsiveContainer width="100%" height="100%">
         <BarChart data={data} layout="vertical" margin={{ top: 0, right: 28, bottom: 0, left: 0 }}>
+          <defs>
+            <linearGradient id="tiskz-brand-bar" x1="0" y1="0" x2="1" y2="0">
+              <stop offset="0%" stopColor="var(--brand-1)" />
+              <stop offset="60%" stopColor="var(--brand-2)" />
+              <stop offset="100%" stopColor="var(--brand-3)" />
+            </linearGradient>
+          </defs>
           <XAxis type="number" hide allowDecimals={false} />
           <YAxis type="category" dataKey="label" width={190} tick={{ ...axisTick, fill: "var(--fg-2)" }} tickLine={false} axisLine={false} />
           <Tooltip content={ChartTooltip} cursor={{ fill: "var(--surface-2)" }} />
           <Bar
             dataKey="n"
             name="Casos con la señal"
-            fill="var(--accent)"
-            maxBarSize={18}
-            radius={[0, 4, 4, 0]}
+            fill="url(#tiskz-brand-bar)"
+            maxBarSize={16}
+            radius={[0, 999, 999, 0]}
             label={{ position: "right", fill: "var(--fg-2)", fontSize: 11 }}
           />
         </BarChart>

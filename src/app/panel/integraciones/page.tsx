@@ -9,7 +9,7 @@ import { CreateKeyForm } from "./CreateKeyForm";
 
 function Code({ children }: { children: string }) {
   return (
-    <pre className="overflow-x-auto rounded-lg border border-line bg-surface-2 p-3 text-xs leading-relaxed text-fg">
+    <pre className="overflow-x-auto rounded-2xl bg-navy p-4 text-xs leading-relaxed text-blue-100">
       <code>{children}</code>
     </pre>
   );

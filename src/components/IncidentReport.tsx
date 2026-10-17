@@ -30,7 +30,7 @@ function Property({ label, children }: { label: string; children: ReactNode }) {
 
 function SideSection({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <section className="border-t border-line py-4 first:border-t-0 first:pt-0">
+    <section className="border-t border-line py-4">
       <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted">{title}</h3>
       {children}
     </section>
@@ -41,7 +41,7 @@ function SideSection({ title, children }: { title: string; children: ReactNode }
 function StatusStepper({ incidentId, current }: { incidentId: string; current: AnalystStatus }) {
   const idx = STEPS.findIndex((s) => s.value === current);
   return (
-    <ol className="flex flex-wrap items-center rounded-lg border border-line bg-surface p-0.5 text-xs">
+    <ol className="flex flex-wrap items-center rounded-full bg-surface p-1 text-xs shadow-soft ring-1 ring-line">
       {STEPS.map((s, i) => {
         const done = i < idx;
         const active = i === idx;
@@ -51,9 +51,9 @@ function StatusStepper({ incidentId, current }: { incidentId: string; current: A
             <form action={setAnalystStatus.bind(null, incidentId, s.value)}>
               <button
                 aria-current={active ? "step" : undefined}
-                className={`inline-flex items-center gap-1 rounded-md px-2.5 py-1 ${
+                className={`inline-flex items-center gap-1 rounded-full px-3 py-1 ${
                   active
-                    ? "bg-accent-wash font-medium text-accent-ink"
+                    ? "bg-brand font-semibold text-white shadow-glow"
                     : done
                       ? "text-fg-2 hover:bg-surface-2"
                       : "text-muted hover:bg-surface-2"
@@ -91,15 +91,15 @@ export function IncidentReport({ detail, tab = "cronologia" }: { detail: Inciden
         title={
           <span className="flex items-start gap-3">
             <span
-              className={`mt-0.5 grid h-9 w-9 shrink-0 place-items-center rounded-lg ${
+              className={`mt-1 grid h-12 w-12 shrink-0 place-items-center rounded-2xl text-white ${
                 incident.risk_level === "alto"
-                  ? "bg-critical-wash text-critical-ink"
+                  ? "bg-danger shadow-glow-critical"
                   : incident.risk_level === "medio"
-                    ? "bg-warning-wash text-warning-ink"
-                    : "bg-good-wash text-good-ink"
+                    ? "bg-warning"
+                    : "bg-safe"
               }`}
             >
-              <ShieldAlert size={18} aria-hidden />
+              <ShieldAlert size={24} aria-hidden />
             </span>
             <span>
               <span className="tabular block text-xs font-medium text-muted">Caso {caseCode(incident.id)}</span>
@@ -124,10 +124,10 @@ export function IncidentReport({ detail, tab = "cronologia" }: { detail: Inciden
 
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_20rem]">
         <div className="min-w-0 space-y-5">
-          <section className="rounded-xl border border-line bg-surface p-4 sm:p-5">
-            {incident.summary && <p className="text-sm text-fg">{incident.summary}</p>}
+          <section className="rounded-3xl bg-surface p-5 shadow-soft sm:p-6">
+            {incident.summary && <p className="text-[15px] leading-relaxed text-fg">{incident.summary}</p>}
             {incident.recommendation && (
-              <p className="mt-3 rounded-lg bg-accent-wash px-3 py-2 text-sm text-accent-ink">
+              <p className="mt-4 rounded-2xl bg-accent-wash px-4 py-3 text-sm text-accent-ink">
                 <strong>Recomendación mostrada:</strong> {incident.recommendation}
               </p>
             )}
@@ -137,22 +137,29 @@ export function IncidentReport({ detail, tab = "cronologia" }: { detail: Inciden
             </p>
           </section>
 
-          <nav className="no-print flex gap-1 overflow-x-auto border-b border-line" aria-label="Secciones del reporte">
+          <nav
+            className="no-print flex w-fit max-w-full gap-1 overflow-x-auto rounded-full bg-surface p-1 shadow-soft ring-1 ring-line"
+            aria-label="Secciones del reporte"
+          >
             {tabs.map((t) => (
               <Link
                 key={t.id}
                 href={`${here}?tab=${t.id}`}
                 scroll={false}
                 aria-current={tab === t.id ? "page" : undefined}
-                className={`-mb-px flex shrink-0 items-center gap-1.5 border-b-2 px-3 py-2 text-sm ${
-                  tab === t.id
-                    ? "border-accent font-medium text-fg"
-                    : "border-transparent text-fg-2 hover:text-fg"
+                className={`flex shrink-0 items-center gap-1.5 rounded-full px-4 py-1.5 text-sm ${
+                  tab === t.id ? "bg-brand font-semibold text-white shadow-glow" : "text-fg-2 hover:bg-surface-2 hover:text-fg"
                 }`}
               >
                 {t.label}
                 {t.count !== undefined && (
-                  <span className="tabular rounded-full bg-surface-2 px-1.5 text-[11px] text-muted">{t.count}</span>
+                  <span
+                    className={`tabular rounded-full px-1.5 text-[11px] font-bold ${
+                      tab === t.id ? "bg-white/25 text-white" : "bg-surface-2 text-muted"
+                    }`}
+                  >
+                    {t.count}
+                  </span>
                 )}
               </Link>
             ))}
@@ -182,7 +189,7 @@ export function IncidentReport({ detail, tab = "cronologia" }: { detail: Inciden
               {notes.length ? (
                 <ul className="mb-4 space-y-3">
                   {notes.map((n) => (
-                    <li key={n.id} className="rounded-lg border border-line p-3 text-sm">
+                    <li key={n.id} className="rounded-2xl bg-surface-2/70 p-4 text-sm">
                       <div className="mb-1 flex flex-wrap items-center gap-2 text-xs text-muted">
                         <Tag tone={n.kind === "conclusion" ? "accent" : "neutral"}>{NOTE_KIND[n.kind]}</Tag>
                         {n.author_name} · {fmtDateTime(n.created_at)}
@@ -212,7 +219,7 @@ export function IncidentReport({ detail, tab = "cronologia" }: { detail: Inciden
                   required
                   rows={3}
                   placeholder="Ej.: se corroboró con el banco que la cuenta fue reportada."
-                  className="w-full rounded-lg border border-line-strong bg-surface px-3 py-2 text-sm outline-none focus:border-accent"
+                  className="w-full rounded-2xl border border-line bg-surface px-4 py-3 text-sm outline-none focus:border-accent focus:ring-4 focus:ring-accent/15"
                 />
                 <button className={buttonCls.secondary}>Agregar</button>
               </form>
@@ -220,10 +227,10 @@ export function IncidentReport({ detail, tab = "cronologia" }: { detail: Inciden
           )}
         </div>
 
-        <aside className="space-y-0 lg:border-l lg:border-line lg:pl-6">
-          <SideSection title="Riesgo">
+        <aside className="h-fit space-y-0 rounded-3xl bg-surface p-5 shadow-soft sm:p-6">
+          <section className="pb-4">
             <RiskMeter score={incident.risk_score} level={incident.risk_level} />
-          </SideSection>
+          </section>
 
           <SideSection title="Propiedades">
             <dl className="divide-y divide-line">
@@ -250,7 +257,7 @@ export function IncidentReport({ detail, tab = "cronologia" }: { detail: Inciden
                     const otherId = l.incident_a === incident.id ? l.incident_b : l.incident_a;
                     const otherTitle = l.incident_a === incident.id ? l.b_title : l.a_title;
                     return (
-                      <li key={l.id} className="rounded-lg border border-line p-3">
+                      <li key={l.id} className="rounded-2xl bg-surface-2/70 p-3.5">
                         <div className="flex items-start justify-between gap-2">
                           <Link href={`/panel/casos/${otherId}`} className="flex gap-1.5 text-sm font-medium hover:underline">
                             <FolderOpen size={14} className="mt-0.5 shrink-0 text-muted" aria-hidden />
@@ -263,12 +270,12 @@ export function IncidentReport({ detail, tab = "cronologia" }: { detail: Inciden
                         {l.status === "pendiente" && (
                           <div className="no-print mt-2 flex gap-2">
                             <form action={reviewLink.bind(null, l.id, "confirmado")}>
-                              <button className="rounded-md border border-line px-2 py-1 text-xs hover:bg-surface-2">
+                              <button className="bg-brand rounded-full px-3 py-1 text-xs font-semibold text-white">
                                 Confirmar
                               </button>
                             </form>
                             <form action={reviewLink.bind(null, l.id, "descartado")}>
-                              <button className="rounded-md border border-line px-2 py-1 text-xs hover:bg-surface-2">
+                              <button className="rounded-full bg-surface px-3 py-1 text-xs font-semibold text-fg-2 ring-1 ring-line hover:bg-surface-2">
                                 Descartar
                               </button>
                             </form>
@@ -287,7 +294,7 @@ export function IncidentReport({ detail, tab = "cronologia" }: { detail: Inciden
             <ol className="space-y-2.5">
               {actions.map((a) => (
                 <li key={a.id} className="relative border-l border-line pl-3 text-sm">
-                  <span className="absolute top-1.5 -left-[3px] h-1.5 w-1.5 rounded-full bg-line-strong" aria-hidden />
+                  <span className="absolute top-1.5 -left-[4px] h-2 w-2 rounded-full bg-accent" aria-hidden />
                   <div className="text-xs text-muted">{fmtDateTime(a.created_at)}</div>
                   <div className="text-fg-2">{a.detail}</div>
                 </li>
