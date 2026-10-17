@@ -225,3 +225,10 @@ export function extractEntities(text: string): DetectedEntity[] {
 
   return out;
 }
+
+/** Valor normalizado de un dato para compararlo entre casos. */
+export function normalizeEntity(kind: string, value: string): string {
+  if (kind === "telefono") return value.replace(/\D/g, "").slice(-10);
+  if (kind === "cuenta" || kind === "monto") return value.replace(/\D/g, "");
+  return normalizeText(value);
+}

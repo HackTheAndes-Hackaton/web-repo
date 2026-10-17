@@ -25,16 +25,16 @@ export function AppShell({
   session,
   workspace,
   groups,
-  pollMs,
   children,
 }: {
   session: Session;
   workspace: string;
   groups: NavGroup[];
-  pollMs?: number;
   children: ReactNode;
 }) {
-  const home = session.role === "analista" ? "/panel" : "/app";
+  // En Vercel cada función es efímera: se consulta periódicamente en vez de usar SSE.
+  const liveMode = process.env.VERCEL ? "poll" : "sse";
+  const home = "/panel";
   return (
     <div className="flex min-h-screen flex-col lg:flex-row">
       <aside className="no-print border-b border-line bg-sidebar lg:sticky lg:top-0 lg:flex lg:h-screen lg:w-60 lg:shrink-0 lg:flex-col lg:border-r lg:border-b-0">
@@ -49,7 +49,7 @@ export function AppShell({
             </span>
           </Link>
           <div className="ml-auto flex items-center gap-2 lg:hidden">
-            <LiveRefresh pollMs={pollMs} />
+            <LiveRefresh mode={liveMode} />
             <form action={logout}>
               <button
                 className="grid h-8 w-8 place-items-center rounded-md text-muted hover:bg-surface hover:text-fg"
@@ -67,7 +67,7 @@ export function AppShell({
 
         <div className="hidden border-t border-line p-3 lg:block">
           <div className="mb-3 px-1">
-            <LiveRefresh pollMs={pollMs} />
+            <LiveRefresh mode={liveMode} />
           </div>
           <div className="flex items-center gap-2.5 rounded-lg px-1">
             <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-accent-wash text-xs font-semibold text-accent-ink">
@@ -75,7 +75,7 @@ export function AppShell({
             </span>
             <div className="min-w-0 flex-1">
               <div className="truncate text-sm font-medium">{session.name}</div>
-              <div className="truncate text-xs text-muted">{session.role === "analista" ? "Analista" : "Usuario"}</div>
+              <div className="truncate text-xs text-muted">Analista</div>
             </div>
             <form action={logout}>
               <button

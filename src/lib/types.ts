@@ -1,7 +1,12 @@
 export type Role = "usuario" | "analista";
 
 export type RiskLevel = "bajo" | "medio" | "alto";
+export const RISK_LEVELS = ["bajo", "medio", "alto"] as const;
 
+/**
+ * Tipos de señal conocidos. El servicio de IA puede mandar otros: se guardan
+ * tal cual y se muestran con su nombre crudo.
+ */
 export const SIGNAL_TYPES = [
   "urgencia",
   "dinero",
@@ -13,7 +18,7 @@ export const SIGNAL_TYPES = [
 ] as const;
 export type SignalType = (typeof SIGNAL_TYPES)[number];
 
-export const SIGNAL_LABELS: Record<SignalType, string> = {
+export const SIGNAL_LABELS: Record<string, string> = {
   urgencia: "Presión para actuar rápido",
   dinero: "Solicitud de dinero",
   datos_sensibles: "Solicitud de datos sensibles",
@@ -23,17 +28,10 @@ export const SIGNAL_LABELS: Record<SignalType, string> = {
   aislamiento: "Intento de aislar o mantener en línea",
 };
 
-export const ENTITY_KINDS = [
-  "telefono",
-  "cuenta",
-  "monto",
-  "nombre",
-  "organizacion",
-  "lugar",
-] as const;
+export const ENTITY_KINDS = ["telefono", "cuenta", "monto", "nombre", "organizacion", "lugar"] as const;
 export type EntityKind = (typeof ENTITY_KINDS)[number];
 
-export const ENTITY_LABELS: Record<EntityKind, string> = {
+export const ENTITY_LABELS: Record<string, string> = {
   telefono: "Teléfono",
   cuenta: "Cuenta / tarjeta",
   monto: "Monto",
@@ -42,23 +40,29 @@ export const ENTITY_LABELS: Record<EntityKind, string> = {
   lugar: "Lugar",
 };
 
-export type Provenance = "mencionado" | "mostrado" | "reportado_usuario";
-
-export const PROVENANCE_LABELS: Record<Provenance, string> = {
+export const PROVENANCE_LABELS: Record<string, string> = {
   mencionado: "Mencionado en la conversación",
-  mostrado: "Mostrado en pantalla",
+  mostrado: "Mostrado en pantalla (identificador de llamada)",
   reportado_usuario: "Reportado por el usuario",
 };
 
-export type Channel = "navegador" | "manual";
-
-export const CHANNEL_LABELS: Record<Channel, string> = {
-  navegador: "Micrófono del dispositivo",
+export const CHANNEL_LABELS: Record<string, string> = {
+  llamada: "Llamada telefónica",
+  app: "Aplicación móvil",
+  presencial: "Conversación presencial",
   manual: "Captura manual",
 };
 
+export const signalLabel = (type: string) => SIGNAL_LABELS[type] ?? type;
+export const entityLabel = (kind: string) => ENTITY_LABELS[kind] ?? kind;
+export const provenanceLabel = (p: string) => PROVENANCE_LABELS[p] ?? p;
+export const channelLabel = (c: string) => CHANNEL_LABELS[c] ?? c;
+
 export type LinkStatus = "pendiente" | "confirmado" | "descartado";
+export const LINK_STATUSES = ["pendiente", "confirmado", "descartado"] as const;
 export type AnalystStatus = "nuevo" | "en_revision" | "cerrado";
+export const ANALYST_STATUSES = ["nuevo", "en_revision", "cerrado"] as const;
+export const NOTE_KINDS = ["correccion", "observacion", "conclusion"] as const;
 
 export interface Session {
   userId: string;
@@ -69,9 +73,11 @@ export interface Session {
 
 export interface Incident {
   id: string;
-  user_id: string;
+  external_id: string | null;
+  user_id: string | null;
+  org_id: string | null;
   title: string;
-  channel: Channel;
+  channel: string;
   status: "en_curso" | "finalizado";
   started_at: string;
   ended_at: string | null;
@@ -79,9 +85,9 @@ export interface Incident {
   risk_level: RiskLevel;
   summary: string | null;
   recommendation: string | null;
-  shared_org_id: string | null;
-  shared_at: string | null;
   analyst_status: AnalystStatus;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface Segment {
@@ -89,6 +95,7 @@ export interface Segment {
   incident_id: string;
   idx: number;
   t_offset: number;
+  speaker: string | null;
   text: string;
   created_at: string;
 }
@@ -97,11 +104,11 @@ export interface Signal {
   id: string;
   incident_id: string;
   segment_id: string | null;
-  type: SignalType;
+  type: string;
   evidence: string;
   explanation: string;
   confidence: number;
-  source: "ia" | "reglas";
+  source: string;
   created_at: string;
 }
 
@@ -109,10 +116,11 @@ export interface Entity {
   id: string;
   incident_id: string;
   segment_id: string | null;
-  kind: EntityKind;
+  kind: string;
   value: string;
   normalized: string;
-  provenance: Provenance;
+  provenance: string;
+  created_at: string;
 }
 
 export interface ActionLog {
@@ -126,16 +134,16 @@ export interface ActionLog {
 export interface Note {
   id: string;
   incident_id: string;
-  author_id: string;
+  author_id: string | null;
   author_name: string;
-  author_role: Role;
-  kind: "correccion" | "observacion" | "conclusion";
+  author_role: string;
+  kind: (typeof NOTE_KINDS)[number];
   text: string;
   created_at: string;
 }
 
 export interface LinkReason {
-  kind: "voz" | "dato_compartido" | "contenido";
+  kind: "voz" | "dato_compartido" | "contenido" | string;
   detail: string;
 }
 

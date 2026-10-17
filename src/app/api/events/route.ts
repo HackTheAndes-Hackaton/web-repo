@@ -4,13 +4,10 @@ import { getSession, sessionError } from "@/lib/session";
 /** Eventos en vivo por SSE. Cada navegador recibe solo lo que le corresponde. */
 export async function GET(request: Request) {
   const session = await getSession();
-  if (!session) return sessionError();
+  if (!session || session.role !== "analista") return sessionError("analista");
 
-  const relevant = (e: AppEvent) => {
-    if (session.role === "usuario") return "userId" in e && e.userId === session.userId;
-    if (e.type === "links") return e.orgId === session.orgId;
-    return e.type === "incident" && e.orgId !== null && e.orgId === session.orgId;
-  };
+  // El panel solo recibe los eventos de su organización.
+  const relevant = (e: AppEvent) => Boolean(session.orgId) && e.orgId === session.orgId;
 
   const encoder = new TextEncoder();
   let cleanup = () => {};

@@ -15,7 +15,6 @@ export default async function CaseDetail({ params, searchParams }: PageProps<"/p
   return (
     <IncidentReport
       detail={detail}
-      session={session}
       tab={TABS.includes(tab as ReportTab) ? (tab as ReportTab) : "cronologia"}
     />
   );

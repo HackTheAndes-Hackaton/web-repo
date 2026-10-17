@@ -84,37 +84,6 @@ export function SignalList({
   );
 }
 
-export function Transcript({ segments, signals }: { segments: Segment[]; signals: Signal[] }) {
-  if (!segments.length) return <Empty>Aún no hay fragmentos transcritos.</Empty>;
-  const flagged = new Map<string, string[]>();
-  for (const s of signals) {
-    if (!s.segment_id) continue;
-    flagged.set(s.segment_id, [...(flagged.get(s.segment_id) ?? []), SIGNAL_LABELS[s.type] ?? s.type]);
-  }
-  return (
-    <ol className="space-y-2">
-      {segments.map((seg) => {
-        const flags = flagged.get(seg.id);
-        return (
-          <li
-            key={seg.id}
-            id={`seg-${seg.id}`}
-            className={`scroll-mt-24 rounded-lg px-3 py-2 target:ring-2 target:ring-accent ${
-              flags ? "bg-warning-wash" : "bg-surface-2"
-            }`}
-          >
-            <div className="flex flex-wrap items-center gap-2 text-xs text-muted">
-              <span className="tabular">{fmtOffset(seg.t_offset)}</span>
-              {flags && <span className="font-medium text-warning-ink">▲ {[...new Set(flags)].join(" · ")}</span>}
-            </div>
-            <p className={`mt-0.5 text-sm ${seg.text.startsWith("(") ? "italic text-muted" : "text-fg"}`}>{seg.text}</p>
-          </li>
-        );
-      })}
-    </ol>
-  );
-}
-
 /**
  * Cronología: cada fragmento transcrito (dato observado) con las señales que la
  * IA infirió de él justo debajo, marcadas como inferencia.
@@ -147,6 +116,9 @@ export function Timeline({ segments, signals }: { segments: Segment[]; signals: 
             </span>
             <div className={`min-w-0 ${last ? "" : "pb-5"}`}>
               <div className="rounded-lg border border-line bg-surface px-3 py-2">
+                {seg.speaker && (
+                  <div className="mb-0.5 text-[11px] font-medium uppercase tracking-wider text-muted">{seg.speaker}</div>
+                )}
                 <p className={`text-sm ${seg.text.startsWith("(") ? "italic text-muted" : "text-fg"}`}>{seg.text}</p>
               </div>
               {flags.length > 0 && (

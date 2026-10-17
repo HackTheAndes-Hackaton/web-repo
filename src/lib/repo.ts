@@ -1,5 +1,5 @@
 import "server-only";
-import { db, newId, nowIso, type Db } from "./db";
+import { db, newId, nowIso } from "./db";
 import type {
   ActionLog,
   Entity,
@@ -19,9 +19,9 @@ export async function getIncident(id: string) {
   return row as Incident | undefined;
 }
 
+/** Un analista solo ve los incidentes de su organización. */
 export function canView(session: Session, incident: Incident) {
-  if (session.role === "usuario") return incident.user_id === session.userId;
-  return Boolean(session.orgId && incident.shared_org_id === session.orgId);
+  return session.role === "analista" && Boolean(session.orgId) && incident.org_id === session.orgId;
 }
 
 export async function getOrg(id: string) {
@@ -30,41 +30,22 @@ export async function getOrg(id: string) {
   return row as { id: string; name: string } | undefined;
 }
 
-export async function listOrgs() {
-  const sql = await db();
-  return [...(await sql<{ id: string; name: string }[]>`select * from organizations order by name`)];
-}
-
-export async function logAction(incidentId: string, kind: string, detail: string, tx?: Db) {
-  const sql = tx ?? (await db());
-  await sql`insert into actions (id, incident_id, kind, detail, created_at)
-            values (${newId("act")}, ${incidentId}, ${kind}, ${detail}, ${nowIso()})`;
-}
-
 export interface IncidentSummary extends Incident {
   signal_count: number;
   signal_types: string | null;
-  user_name: string;
+  user_name: string | null;
 }
 
-async function listIncidents(where: { userId?: string; orgId?: string }) {
+export async function listSharedIncidents(orgId: string) {
   const sql = await db();
   const rows = await sql<IncidentSummary[]>`
     select i.*, u.name as user_name,
            (select count(*)::int from signals s where s.incident_id = i.id) as signal_count,
            (select string_agg(distinct s.type, ',') from signals s where s.incident_id = i.id) as signal_types
-    from incidents i join users u on u.id = i.user_id
-    where ${where.userId ? sql`i.user_id = ${where.userId}` : sql`i.shared_org_id = ${where.orgId!}`}
+    from incidents i left join users u on u.id = i.user_id
+    where i.org_id = ${orgId}
     order by i.started_at desc`;
   return [...rows];
-}
-
-export function listIncidentsForUser(userId: string) {
-  return listIncidents({ userId });
-}
-
-export function listSharedIncidents(orgId: string) {
-  return listIncidents({ orgId });
 }
 
 export interface LinkView extends IncidentLink {
@@ -82,7 +63,7 @@ export async function listLinks(orgId: string) {
     select l.*, a.title as a_title, b.title as b_title, a.started_at as a_started,
            b.started_at as b_started, a.risk_level as a_risk, b.risk_level as b_risk
     from links l join incidents a on a.id = l.incident_a join incidents b on b.id = l.incident_b
-    where a.shared_org_id = ${orgId} and b.shared_org_id = ${orgId}
+    where a.org_id = ${orgId} and b.org_id = ${orgId}
     order by case l.status when 'pendiente' then 0 when 'confirmado' then 1 else 2 end, l.score desc`;
   return [...rows];
 }
@@ -105,10 +86,12 @@ export async function getIncidentDetail(id: string, session: Session) {
       sql<ActionLog[]>`select * from actions where incident_id = ${id} order by created_at`,
       sql<Note[]>`select * from notes where incident_id = ${id} order by created_at`,
       sql<{ n: number }[]>`select count(*)::int as n from voice_samples where incident_id = ${id}`,
-      sql<{ name: string }[]>`select name from users where id = ${incident.user_id}`,
-      incident.shared_org_id ? getOrg(incident.shared_org_id) : Promise.resolve(undefined),
-      incident.shared_org_id && session.role === "analista"
-        ? listLinks(incident.shared_org_id).then((all) => all.filter((l) => l.incident_a === id || l.incident_b === id))
+      incident.user_id
+        ? sql<{ name: string }[]>`select name from users where id = ${incident.user_id}`
+        : Promise.resolve([] as { name: string }[]),
+      incident.org_id ? getOrg(incident.org_id) : Promise.resolve(undefined),
+      incident.org_id
+        ? listLinks(incident.org_id).then((all) => all.filter((l) => l.incident_a === id || l.incident_b === id))
         : Promise.resolve([] as LinkView[]),
     ]);
   return {
@@ -127,13 +110,6 @@ export async function getIncidentDetail(id: string, session: Session) {
 
 export type IncidentDetail = NonNullable<Awaited<ReturnType<typeof getIncidentDetail>>>;
 
-export async function getActiveIncident(userId: string) {
-  const sql = await db();
-  const [row] = await sql<Incident[]>`
-    select * from incidents where user_id = ${userId} and status = 'en_curso' order by started_at desc limit 1`;
-  return row as Incident | undefined;
-}
-
 export async function dashboardData(orgId: string) {
   const sql = await db();
   const [incidents, links, signalCounts, repeatedEntities] = await Promise.all([
@@ -141,12 +117,12 @@ export async function dashboardData(orgId: string) {
     listLinks(orgId),
     sql<{ type: SignalType; n: number }[]>`
       select s.type, count(distinct s.incident_id)::int as n from signals s
-      join incidents i on i.id = s.incident_id where i.shared_org_id = ${orgId}
+      join incidents i on i.id = s.incident_id where i.org_id = ${orgId}
       group by s.type order by n desc`,
     sql<{ kind: string; normalized: string; value: string; n: number }[]>`
       select e.kind, e.normalized, min(e.value) as value, count(distinct e.incident_id)::int as n
       from entities e join incidents i on i.id = e.incident_id
-      where i.shared_org_id = ${orgId} and e.kind in ('telefono', 'cuenta', 'nombre')
+      where i.org_id = ${orgId} and e.kind in ('telefono', 'cuenta', 'nombre')
       group by e.kind, e.normalized having count(distinct e.incident_id) > 1
       order by n desc limit 8`,
   ]);
@@ -211,11 +187,11 @@ export async function navCounts(orgId: string) {
   const sql = await db();
   const [[{ open }], [{ pending }]] = await Promise.all([
     sql<{ open: number }[]>`
-      select count(*)::int as open from incidents where shared_org_id = ${orgId} and analyst_status != 'cerrado'`,
+      select count(*)::int as open from incidents where org_id = ${orgId} and analyst_status != 'cerrado'`,
     sql<{ pending: number }[]>`
       select count(*)::int as pending from links l
       join incidents a on a.id = l.incident_a join incidents b on b.id = l.incident_b
-      where l.status = 'pendiente' and a.shared_org_id = ${orgId} and b.shared_org_id = ${orgId}`,
+      where l.status = 'pendiente' and a.org_id = ${orgId} and b.org_id = ${orgId}`,
   ]);
   return { open, pendingLinks: pending };
 }

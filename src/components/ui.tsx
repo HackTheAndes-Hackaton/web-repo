@@ -27,10 +27,6 @@ export function RiskBadge({ level, score }: { level: RiskLevel; score?: number }
   );
 }
 
-export function riskDotClass(level: RiskLevel) {
-  return RISK_STYLE[level].dot;
-}
-
 export function SignalChip({ type }: { type: SignalType }) {
   return (
     <span className="inline-flex items-center whitespace-nowrap rounded-md border border-line bg-surface-2 px-2 py-0.5 text-xs text-fg-2">

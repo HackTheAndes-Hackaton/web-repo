@@ -7,10 +7,10 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "db:migrate": "node --env-file=.env.local scripts/migrate.mjs"
+    "db:migrate": "node --env-file=.env.local scripts/migrate.mjs",
+    "db:local": "node scripts/local-db.mjs"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.135.0",
     "lucide-react": "^1.59.0",
     "next": "16.4.2",
     "postgres": "^3.4.9",
@@ -21,6 +21,9 @@
     "zod": "^4.6.7"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "^0.5.10",
+    "@electric-sql/pglite-pgvector": "^0.0.11",
+    "@electric-sql/pglite-socket": "^0.2.13",
     "@tailwindcss/turbopack": "^4",
     "@types/node": "^24.19.2",
     "@types/react": "^19",

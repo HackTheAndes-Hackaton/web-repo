@@ -1,17 +1,10 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
-import { Check, Clock, FolderOpen, Lock, Mic, Share2, ShieldAlert } from "lucide-react";
-import {
-  addNoteAction,
-  deleteIncident,
-  deleteVoiceSamples,
-  reviewLink,
-  setAnalystStatus,
-  shareIncident,
-} from "@/app/actions";
+import { Check, Clock, FolderOpen, Hash, Mic, ShieldAlert } from "lucide-react";
+import { addNoteAction, reviewLink, setAnalystStatus } from "@/app/actions";
 import { fmtDateTime, fmtDuration, pct } from "@/lib/format";
-import { caseCode, listOrgs, type IncidentDetail } from "@/lib/repo";
-import { CHANNEL_LABELS, type AnalystStatus, type Session } from "@/lib/types";
+import { caseCode, type IncidentDetail } from "@/lib/repo";
+import { channelLabel, type AnalystStatus } from "@/lib/types";
 import { EntityTable, RiskMeter, SignalList, Timeline } from "./incident-parts";
 import { LinkReasons, LinkStatusTag } from "./links-ui";
 import { PrintButton } from "./PrintButton";
@@ -77,20 +70,9 @@ function StatusStepper({ incidentId, current }: { incidentId: string; current: A
   );
 }
 
-export async function IncidentReport({
-  detail,
-  session,
-  tab = "cronologia",
-}: {
-  detail: IncidentDetail;
-  session: Session;
-  tab?: ReportTab;
-}) {
+export function IncidentReport({ detail, tab = "cronologia" }: { detail: IncidentDetail; tab?: ReportTab }) {
   const { incident, segments, signals, entities, actions, notes, voiceSamples, owner, sharedOrg, links } = detail;
-  const isOwner = session.role === "usuario";
-  const basePath = isOwner ? "/app/incidentes" : "/panel/casos";
-  const here = `${basePath}/${incident.id}`;
-  const orgs = isOwner ? await listOrgs() : [];
+  const here = `/panel/casos/${incident.id}`;
 
   const tabs: { id: ReportTab; label: string; count?: number }[] = [
     { id: "cronologia", label: "Cronología", count: segments.length },
@@ -102,17 +84,10 @@ export async function IncidentReport({
   return (
     <article>
       <PageHeader
-        crumbs={
-          isOwner
-            ? [
-                { href: "/app", label: "Inicio" },
-                { href: "/app/incidentes", label: "Mis reportes" },
-              ]
-            : [
-                { href: "/panel", label: "Análisis" },
-                { href: "/panel/casos", label: "Casos" },
-              ]
-        }
+        crumbs={[
+          { href: "/panel", label: "Análisis" },
+          { href: "/panel/casos", label: "Casos" },
+        ]}
         title={
           <span className="flex items-start gap-3">
             <span
@@ -134,18 +109,14 @@ export async function IncidentReport({
         }
         meta={
           <>
-            {!isOwner && <StatusStepper incidentId={incident.id} current={incident.analyst_status} />}
+            <StatusStepper incidentId={incident.id} current={incident.analyst_status} />
             <RiskBadge level={incident.risk_level} score={incident.risk_score} />
             <Pill icon={<Clock size={12} aria-hidden />}>
               {incident.status === "en_curso" ? "En curso · " : ""}
               {fmtDuration(incident.started_at, incident.ended_at)}
             </Pill>
-            <Pill icon={<Mic size={12} aria-hidden />}>{CHANNEL_LABELS[incident.channel]}</Pill>
-            {isOwner && (
-              <Pill icon={sharedOrg ? <Share2 size={12} aria-hidden /> : <Lock size={12} aria-hidden />}>
-                {sharedOrg ? "Compartido" : "Privado"}
-              </Pill>
-            )}
+            <Pill icon={<Mic size={12} aria-hidden />}>{channelLabel(incident.channel)}</Pill>
+            {incident.external_id && <Pill icon={<Hash size={12} aria-hidden />}>{incident.external_id}</Pill>}
           </>
         }
         actions={<PrintButton />}
@@ -227,7 +198,7 @@ export async function IncidentReport({
               )}
               <form action={addNoteAction.bind(null, incident.id)} className="no-print space-y-2">
                 <div className="flex flex-wrap gap-3 text-sm">
-                  {(isOwner ? (["correccion", "observacion"] as const) : (["observacion", "conclusion"] as const)).map(
+                  {(["observacion", "conclusion", "correccion"] as const).map(
                     (k, i) => (
                       <label key={k} className="flex items-center gap-1.5">
                         <input type="radio" name="kind" value={k} defaultChecked={i === 0} />
@@ -240,11 +211,7 @@ export async function IncidentReport({
                   name="text"
                   required
                   rows={3}
-                  placeholder={
-                    isOwner
-                      ? "Ej.: en el minuto 0:24 dijo 12 mil, no 15 mil."
-                      : "Ej.: se corroboró con el banco que la cuenta fue reportada."
-                  }
+                  placeholder="Ej.: se corroboró con el banco que la cuenta fue reportada."
                   className="w-full rounded-lg border border-line-strong bg-surface px-3 py-2 text-sm outline-none focus:border-accent"
                 />
                 <button className={buttonCls.secondary}>Agregar</button>
@@ -260,46 +227,22 @@ export async function IncidentReport({
 
           <SideSection title="Propiedades">
             <dl className="divide-y divide-line">
-              <Property label="Reportado por">{isOwner ? "Tú" : owner.name}</Property>
+              <Property label="Persona">{owner?.name ?? "Sin registrar"}</Property>
               <Property label="Inicio">{fmtDateTime(incident.started_at)}</Property>
-              <Property label="Canal">{CHANNEL_LABELS[incident.channel]}</Property>
-              <Property label="Compartido con">{sharedOrg ? sharedOrg.name : "Nadie (privado)"}</Property>
+              <Property label="Fin">{incident.ended_at ? fmtDateTime(incident.ended_at) : "En curso"}</Property>
+              <Property label="Canal">{channelLabel(incident.channel)}</Property>
+              <Property label="Organización">{sharedOrg?.name ?? "—"}</Property>
+              <Property label="ID externo">
+                <span className="tabular break-all">{incident.external_id ?? "—"}</span>
+              </Property>
+              <Property label="Actualizado">{fmtDateTime(incident.updated_at)}</Property>
               <Property label="Muestras de voz">
                 {voiceSamples}
                 <span className="block text-xs text-muted">Dato biométrico sensible; similitud = pista, no identificación.</span>
               </Property>
             </dl>
-            {isOwner && voiceSamples > 0 && (
-              <form action={deleteVoiceSamples.bind(null, incident.id)} className="no-print mt-2">
-                <button className={buttonCls.ghost}>Borrar muestras de voz</button>
-              </form>
-            )}
           </SideSection>
 
-          {isOwner ? (
-            <SideSection title="Compartir">
-              {sharedOrg ? (
-                <div className="space-y-3 text-sm">
-                  <p className="text-fg-2">La organización puede ver este reporte y compararlo con otros casos.</p>
-                  <form action={shareIncident.bind(null, incident.id, null)}>
-                    <button className={`${buttonCls.secondary} w-full`}>Dejar de compartir</button>
-                  </form>
-                </div>
-              ) : (
-                <div className="space-y-2 text-sm">
-                  <p className="text-fg-2">El permiso de análisis que diste no incluye compartirlo.</p>
-                  {orgs.map((o) => (
-                    <form key={o.id} action={shareIncident.bind(null, incident.id, o.id)}>
-                      <button className={`${buttonCls.primary} w-full`}>
-                        <Share2 size={14} aria-hidden />
-                        Compartir con {o.name}
-                      </button>
-                    </form>
-                  ))}
-                </div>
-              )}
-            </SideSection>
-          ) : (
             <SideSection title={`Casos relacionados (${links.length})`}>
               {links.length ? (
                 <ul className="space-y-2">
@@ -339,7 +282,6 @@ export async function IncidentReport({
                 <p className="text-sm text-muted">No hay vínculos propuestos.</p>
               )}
             </SideSection>
-          )}
 
           <SideSection title="Acciones y permisos">
             <ol className="space-y-2.5">
@@ -353,13 +295,6 @@ export async function IncidentReport({
             </ol>
           </SideSection>
 
-          {isOwner && (
-            <SideSection title="Privacidad">
-              <form action={deleteIncident.bind(null, incident.id)} className="no-print">
-                <button className={`${buttonCls.ghost} text-critical-ink`}>Eliminar este reporte</button>
-              </form>
-            </SideSection>
-          )}
         </aside>
       </div>
     </article>

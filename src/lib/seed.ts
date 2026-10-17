@@ -2,7 +2,7 @@ import "server-only";
 import { newId, toVector, type Db } from "./db";
 import { detectSignals, extractEntities, scoreFromSignalTypes } from "./heuristics";
 import { refreshLinksFor } from "./links";
-import { riskLevelFromScore, type Channel, type EntityKind, type SignalType } from "./types";
+import { riskLevelFromScore, type EntityKind, type SignalType } from "./types";
 
 /**
  * Datos ficticios para la demo. Las conversaciones están inventadas y las
@@ -37,7 +37,7 @@ interface SeedIncident {
   hour: number;
   minutes: number;
   title: string;
-  channel: Channel;
+  channel: string;
   segments: string[];
   shown?: { kind: EntityKind; value: string; normalized: string }[];
   summary: string;
@@ -54,7 +54,7 @@ const INCIDENTS: SeedIncident[] = [
     hour: 11,
     minutes: 6,
     title: "Falso familiar detenido pide depósito",
-    channel: "navegador",
+    channel: "llamada",
     segments: [
       "Bueno, ¿tía? Soy tu sobrino, cambié de número. Tuve un problema, me detuvieron en la carretera.",
       "El licenciado Ramírez dice que si no pagas la multa ahora mismo me pasan al Ministerio Público.",
@@ -75,7 +75,7 @@ const INCIDENTS: SeedIncident[] = [
     hour: 18,
     minutes: 4,
     title: "Supuesto secuestro con exigencia de pago",
-    channel: "navegador",
+    channel: "llamada",
     segments: [
       "Escúchame bien, tenemos a tu hijo. Si no pagas le va a ir mal.",
       "Quiero 30 mil pesos en la cuenta 4152 3138 0011 2233, en menos de 30 minutos.",
@@ -95,7 +95,7 @@ const INCIDENTS: SeedIncident[] = [
     hour: 13,
     minutes: 3,
     title: "Posible suplantación bancaria para obtener NIP",
-    channel: "navegador",
+    channel: "llamada",
     segments: [
       "Buenas tardes, le hablamos del banco Banorte, su tarjeta fue clonada.",
       "Necesito su NIP y el número de su tarjeta para bloquearla, rápido, antes de que le roben más.",
@@ -112,7 +112,7 @@ const INCIDENTS: SeedIncident[] = [
     hour: 10,
     minutes: 5,
     title: "Falso departamento de fraudes pide código",
-    channel: "navegador",
+    channel: "llamada",
     segments: [
       "Le habla del departamento de fraudes de BBVA, detectamos un cargo no reconocido en su tarjeta.",
       "Para cancelarlo necesito el código de verificación que le llegó por mensaje y la fecha de vencimiento.",
@@ -131,7 +131,7 @@ const INCIDENTS: SeedIncident[] = [
     hour: 20,
     minutes: 3,
     title: "Préstamo entre hermanas (conversación legítima)",
-    channel: "navegador",
+    channel: "llamada",
     segments: [
       "Hola, soy yo, Carla. Oye, ¿me prestas 2 mil pesos para la colegiatura? Te los pago el viernes.",
       "Si quieres lo platicamos en la comida del domingo con mamá, no te preocupes.",
@@ -148,7 +148,7 @@ const INCIDENTS: SeedIncident[] = [
     hour: 12,
     minutes: 4,
     title: "Supuesto premio con pago de envío",
-    channel: "navegador",
+    channel: "llamada",
     segments: [
       "Felicidades, habla el licenciado Ramírez, usted ganó una camioneta en el sorteo.",
       "Solo tiene que pagar el envío, 4 mil 500 pesos en OXXO, hoy mismo, y no le diga a nadie hasta recibirla.",
@@ -165,7 +165,7 @@ const INCIDENTS: SeedIncident[] = [
     hour: 9,
     minutes: 4,
     title: "Supuesto adeudo con el SAT",
-    channel: "navegador",
+    channel: "llamada",
     segments: [
       "Le hablamos del SAT, tiene un adeudo y una orden de embargo para hoy.",
       "Para detenerla debe pagar 8 mil pesos de inmediato a la cuenta 0121 8000 4455 6677 88.",
@@ -182,7 +182,7 @@ const INCIDENTS: SeedIncident[] = [
     hour: 17,
     minutes: 2,
     title: "Mensaje de 'cambié de número' con transferencia",
-    channel: "navegador",
+    channel: "llamada",
     segments: [
       "Hola mamá, cambié de número, guárdalo. ¿Me puedes hacer una transferencia urgente? Luego te explico.",
     ],
@@ -236,6 +236,7 @@ export async function seedDemoData(sql: Db) {
 
     incidents.push({
       id,
+      external_id: `llamada-${1000 + ids.length}`,
       user_id: s.user,
       title: s.title,
       channel: s.channel,
@@ -246,8 +247,7 @@ export async function seedDemoData(sql: Db) {
       risk_level: riskLevelFromScore(score),
       summary: s.summary,
       recommendation: s.recommendation,
-      shared_org_id: s.shared ? "org_uav" : null,
-      shared_at: s.shared ? end.toISOString() : null,
+      org_id: s.shared ? "org_uav" : null,
       analyst_status: s.analystStatus ?? "nuevo",
     });
     action(id, "captura_iniciada", "Captura y análisis autorizados por el usuario.", at(0));

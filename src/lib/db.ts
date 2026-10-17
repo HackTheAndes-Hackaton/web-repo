@@ -28,14 +28,19 @@ function toIso(value: string) {
 }
 
 function createClient(): Sql {
-  const url = process.env.DATABASE_URL;
+  // POSTGRES_URL es la que crea la integración de Supabase en Vercel (pooler de Supabase).
+  const url = process.env.DATABASE_URL || process.env.POSTGRES_URL;
   if (!url) {
     throw new Error(
-      "Falta DATABASE_URL. Copia .env.example a .env.local y pega la cadena de conexión de tu proyecto de Supabase.",
+      "Falta DATABASE_URL. En local copia .env.example a .env.local; en Vercel agrégala en Settings → Environment Variables (o conecta la integración de Supabase).",
     );
   }
   const local = /@(localhost|127\.0\.0\.1)[:/]/.test(url);
-  return postgres(url, {
+  // Las cadenas de Supabase/Vercel traen parámetros extra (sslmode, supa, …) que
+  // postgres.js enviaría al servidor; el SSL se configura abajo.
+  const clean = new URL(url);
+  clean.search = "";
+  return postgres(clean.toString(), {
     prepare: false, // requerido por el pooler de Supabase en modo transacción
     ssl: local ? false : "require",
     max: Number(process.env.DATABASE_POOL_MAX ?? (local ? 1 : 5)),

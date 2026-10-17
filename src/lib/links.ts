@@ -133,17 +133,17 @@ function compare(a: Profile, b: Profile, voiceSim: number | null) {
 /** Recalcula vínculos del incidente contra los demás casos compartidos con su organización. */
 export async function refreshLinksFor(incidentId: string, tx?: Db) {
   const sql = tx ?? (await db());
-  const [inc] = await sql<{ id: string; shared_org_id: string | null }[]>`
-    select id, shared_org_id from incidents where id = ${incidentId}`;
+  const [inc] = await sql<{ id: string; org_id: string | null }[]>`
+    select id, org_id from incidents where id = ${incidentId}`;
   if (!inc) return;
-  if (!inc.shared_org_id) {
+  if (!inc.org_id) {
     // Si deja de compartirse, se quitan los vínculos que aún no revisó nadie.
     await sql`delete from links where (incident_a = ${incidentId} or incident_b = ${incidentId}) and status = 'pendiente'`;
     return;
   }
 
   const others = (
-    await sql<{ id: string }[]>`select id from incidents where shared_org_id = ${inc.shared_org_id} and id != ${incidentId}`
+    await sql<{ id: string }[]>`select id from incidents where org_id = ${inc.org_id} and id != ${incidentId}`
   ).map((r) => r.id);
   if (!others.length) return;
 

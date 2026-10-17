@@ -2,9 +2,9 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { FileText, FolderOpen, House, LayoutDashboard, Network } from "lucide-react";
+import { FolderOpen, KeyRound, LayoutDashboard, Network } from "lucide-react";
 
-const ICONS = { house: House, report: FileText, dashboard: LayoutDashboard, cases: FolderOpen, links: Network };
+const ICONS = { dashboard: LayoutDashboard, cases: FolderOpen, links: Network, key: KeyRound };
 
 export interface NavItem {
   href: string;
