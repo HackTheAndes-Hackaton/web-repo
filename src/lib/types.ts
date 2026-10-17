@@ -88,6 +88,31 @@ export interface Incident {
   analyst_status: AnalystStatus;
   created_at: string;
   updated_at: string;
+  client_call_id: string | null;
+  provider_call_id: string | null;
+  agent_session_id: string | null;
+  caller_number_raw: string | null;
+  caller_e164: string | null;
+  caller_name: string | null;
+  direction: "incoming" | "outgoing" | null;
+  call_status: "ringing" | "active" | "ended" | "rejected" | "missed" | null;
+  answered_at: string | null;
+  talk_duration_s: number | null;
+  agent_status: string | null;
+  ready_to_answer: boolean;
+  simulated: boolean | null;
+  blocked: boolean;
+  analysis_status: "pending" | "running" | "completed" | "failed";
+  verdict: "none" | "safe" | "suspicious" | "scam";
+  risk_reasons: string[];
+  scam_type: string | null;
+  impersonating: string | null;
+  user_feedback: "safe" | "scam" | "unsure" | null;
+  user_feedback_at: string | null;
+  consent_snapshot: Record<string, unknown>;
+  analysis_meta: Record<string, unknown>;
+  shared_at: string | null;
+  sharing_revoked_at: string | null;
 }
 
 export interface Segment {
@@ -98,6 +123,12 @@ export interface Segment {
   speaker: string | null;
   text: string;
   created_at: string;
+  external_segment_id: string | null;
+  flagged: boolean;
+  is_final: boolean;
+  end_offset: number | null;
+  source: string | null;
+  updated_at: string;
 }
 
 export interface Signal {
@@ -160,6 +191,11 @@ export interface IncidentLink {
   reviewed_at: string | null;
   note: string | null;
   created_at: string;
+  reviewed_by_id: string | null;
+  evidence_version: number;
+  evidence_snapshot: Record<string, unknown>;
+  reviewed_evidence_version: number | null;
+  reviewed_evidence: Record<string, unknown> | null;
 }
 
 export function riskLevelFromScore(score: number): RiskLevel {

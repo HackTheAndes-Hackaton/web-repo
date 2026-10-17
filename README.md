@@ -11,6 +11,9 @@ La captura de audio y el análisis con IA viven en otros servicios; este proyect
 
 Next.js 16 (App Router) + Postgres (Supabase, con `pgvector`).
 
+**Actualización de la base existente:** consulta [ACTUALIZAR_SUPABASE.md](docs/ACTUALIZAR_SUPABASE.md).
+Incluye los campos del móvil, muestras de voz compatibles y revisiones con evidencia conservada.
+
 ## Arranque rápido (sin Supabase)
 
 ```bash

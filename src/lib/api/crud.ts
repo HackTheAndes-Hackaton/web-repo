@@ -83,10 +83,11 @@ export async function createRows(def: ResourceDef, body: unknown, fixed: Row = {
 
   const sql = await db();
   const rows = def.prepare ? await def.prepare(parsed, sql) : parsed;
-  const cols = Object.keys(rows[0]);
+  const storedRows = rows.map((row) => jsonValues(sql, def, row));
+  const cols = Object.keys(storedRows[0]);
   const conflict = def.ignoreDuplicatesOn ? sql`on conflict (${sql(def.ignoreDuplicatesOn)}) do nothing` : sql``;
   const created = await sql<Row[]>`
-    insert into ${sql(def.table)} ${sql(rows as never, cols)} ${conflict}
+    insert into ${sql(def.table)} ${sql(storedRows as never, cols)} ${conflict}
     returning ${sql(def.columns)}`;
 
   sideEffects(def, rows);
@@ -101,13 +102,17 @@ export async function createRows(def: ResourceDef, body: unknown, fixed: Row = {
 }
 
 export async function updateRow(def: ResourceDef, id: string, body: unknown) {
+  if (def.name === "actions" && (await getRow(def, id)).kind === "link_review") {
+    throw new ApiError(409, "immutable_review", "Las revisiones se conservan. Registra una revisión nueva en el vínculo.");
+  }
   const patch = def.update.parse(body) as Row;
   const values = def.preparePatch ? def.preparePatch(patch) : patch;
   const keys = Object.keys(values).filter((k) => values[k] !== undefined);
   if (!keys.length) throw new ApiError(400, "empty_patch", "No hay campos para actualizar.");
   const sql = await db();
+  const storedValues = jsonValues(sql, def, values);
   const [row] = await sql<Row[]>`
-    update ${sql(def.table)} set ${sql(values as never, keys)} where id = ${id} returning ${sql(def.columns)}`;
+    update ${sql(def.table)} set ${sql(storedValues as never, keys)} where id = ${id} returning ${sql(def.columns)}`;
   if (!row) throw notFound(def.title);
   sideEffects(def, [row]);
   return row;
@@ -116,9 +121,18 @@ export async function updateRow(def: ResourceDef, id: string, body: unknown) {
 export async function deleteRow(def: ResourceDef, id: string) {
   const sql = await db();
   const before = await getRow(def, id);
+  if (def.name === "actions" && before.kind === "link_review") {
+    throw new ApiError(409, "immutable_review", "Las revisiones se conservan en el historial.");
+  }
   await sql`delete from ${sql(def.table)} where id = ${id}`;
   sideEffects(def, [before], true);
   return { id, deleted: true };
+}
+
+function jsonValues(sql: Db, def: ResourceDef, row: Row): Row {
+  return Object.fromEntries(Object.entries(row).map(([key, value]) => [key,
+    def.jsonColumns?.includes(key) && value !== null ? sql.json(value as postgres.JSONValue) : value,
+  ]));
 }
 
 /** Incidentes afectados por un cambio en este recurso. */

@@ -249,12 +249,16 @@ export async function seedDemoData(sql: Db) {
       recommendation: s.recommendation,
       org_id: s.shared ? "org_uav" : null,
       analyst_status: s.analystStatus ?? "nuevo",
+      simulated: true,
+      verdict: score >= 65 ? "scam" : score >= 35 ? "suspicious" : "safe",
+      analysis_status: "completed",
+      consent_snapshot: sql.json({ voice_storage: true, voice_reference: true }),
     });
     action(id, "captura_iniciada", "Captura y análisis autorizados por el usuario.", at(0));
 
     const seen = new Set<string>();
     segRows.forEach((seg, i) => {
-      segments.push({ id: seg.id, incident_id: id, idx: i, t_offset: seg.t, text: seg.text, created_at: at(seg.t) });
+      segments.push({ id: seg.id, incident_id: id, idx: i, t_offset: seg.t, speaker: "caller", text: seg.text, created_at: at(seg.t) });
       for (const sig of detectSignals(seg.text)) {
         signals.push({
           id: newId("sig"),
@@ -312,9 +316,9 @@ export async function seedDemoData(sql: Db) {
   await sql`insert into entities ${sql(entities)}`;
   await sql`insert into actions ${sql(actions)}`;
   for (const v of voices) {
-    await sql`insert into voice_samples (id, incident_id, embedding, duration_s, created_at)
+    await sql`insert into voice_samples (id, incident_id, embedding, duration_s, created_at,model_id,model_version,speaker,quality_status,review_status,reference_enabled)
               values (${v.id as string}, ${v.incident_id as string}, ${v.embedding as string}::extensions.vector,
-                      ${v.duration_s as number}, ${v.created_at as string})`;
+                      ${v.duration_s as number}, ${v.created_at as string},'demo-synthetic','1','caller','usable','aprobada',true)`;
   }
 
   for (const id of ids) await refreshLinksFor(id, sql);
@@ -322,7 +326,7 @@ export async function seedDemoData(sql: Db) {
   // Un vínculo ya revisado, para que el panel muestre los tres estados.
   const [luis, marta] = ids;
   const [a, b] = luis < marta ? [luis, marta] : [marta, luis];
-  await sql`update links set status = 'confirmado', reviewed_by = 'Analista demo',
+  await sql`update links set status = 'confirmado', reviewed_by = 'Analista demo', reviewed_by_id='usr_analista',
             reviewed_at = ${new Date(Date.now() - 2 * 86400000).toISOString()},
             note = ${"Misma cuenta destino y voz muy parecida. Se documenta como posible campaña; falta corroboración independiente."}
             where incident_a = ${a} and incident_b = ${b}`;

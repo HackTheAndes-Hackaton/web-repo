@@ -61,7 +61,7 @@ export async function reviewLink(linkId: string, status: LinkStatus, formData?: 
   const note = formData ? String(formData.get("note") ?? "").trim() || null : null;
   const reviewed = status !== "pendiente";
   const sql = await db();
-  await sql`update links set status = ${status}, reviewed_by = ${reviewed ? s.name : null},
+  await sql`update links set status = ${status}, reviewed_by = ${reviewed ? s.name : null}, reviewed_by_id = ${s.userId},
             reviewed_at = ${reviewed ? nowIso() : null}, note = coalesce(${note}, note)
             where id = ${linkId}`;
   emit({ type: "links", orgId: s.orgId! });

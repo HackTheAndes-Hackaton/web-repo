@@ -1,23 +1,16 @@
 // Aplica las migraciones de supabase/migrations a la base de DATABASE_URL.
 // Uso: npm run db:migrate   (lee .env.local)
-import fs from "node:fs";
-import path from "node:path";
-import postgres from "postgres";
+import { databaseClient, reportDatabaseError } from "./database-config.mjs";
+import { applyMigrations } from "./migration-runner.mjs";
 
-const url = process.env.DATABASE_URL;
-if (!url) {
-  console.error("Falta DATABASE_URL (copia .env.example a .env.local).");
-  process.exit(1);
-}
-const local = /@(localhost|127\.0\.0\.1)[:/]/.test(url);
-const sql = postgres(url, { prepare: false, ssl: local ? false : "require", max: 1, onnotice: () => {} });
-
-const dir = path.join(process.cwd(), "supabase", "migrations");
+let sql;
 try {
-  for (const file of fs.readdirSync(dir).filter((f) => f.endsWith(".sql")).sort()) {
-    await sql.unsafe(fs.readFileSync(path.join(dir, file), "utf8"));
-    console.log("✓", file);
-  }
+  sql = databaseClient({ migration: true });
+  const files = await applyMigrations(sql);
+  console.log(files.length ? files.map((f) => `Aplicada: ${f}`).join("\n") : "La base ya está actualizada.");
+} catch (error) {
+  reportDatabaseError(error);
+  process.exitCode = 1;
 } finally {
-  await sql.end();
+  if (sql) await sql.end();
 }

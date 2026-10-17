@@ -1,9 +1,8 @@
 import "server-only";
-import fs from "node:fs";
-import path from "node:path";
 import crypto from "node:crypto";
 import postgres from "postgres";
 import { seedDemoData } from "./seed";
+import { applyMigrations } from "../../scripts/migration-runner.mjs";
 
 /**
  * Conexión a Supabase (Postgres) desde el servidor.
@@ -17,8 +16,6 @@ export type Sql = postgres.Sql;
 type Tx = postgres.TransactionSql;
 /** Cliente o transacción: las funciones que escriben aceptan cualquiera de los dos. */
 export type Db = Sql | Tx;
-
-const MIGRATIONS_DIR = path.join(process.cwd(), "supabase", "migrations");
 
 /** Postgres devuelve "2026-10-17 18:52:55.12+00"; la app trabaja con ISO 8601. */
 function toIso(value: string) {
@@ -65,18 +62,9 @@ export function rawClient(): Sql {
   return (g.__sql ??= createClient());
 }
 
-async function applyMigrations(sql: Sql) {
-  const files = fs
-    .readdirSync(MIGRATIONS_DIR)
-    .filter((f) => f.endsWith(".sql"))
-    .sort();
-  for (const f of files) await sql.unsafe(fs.readFileSync(path.join(MIGRATIONS_DIR, f), "utf8"));
-}
-
 async function prepare() {
   const sql = rawClient();
-  const [{ exists }] = await sql<{ exists: boolean }[]>`select to_regclass('public.links') is not null as exists`;
-  if (!exists) await applyMigrations(sql);
+  await applyMigrations(sql);
   const [{ n }] = await sql<{ n: number }[]>`select count(*)::int as n from users`;
   if (n === 0) await sql.begin((tx) => seedDemoData(tx));
 }
@@ -95,7 +83,7 @@ export async function db(): Promise<Sql> {
 export async function resetDatabase() {
   const sql = await db();
   await sql.begin(async (tx) => {
-    await tx`truncate links, notes, actions, voice_samples, entities, signals, segments, incidents, users, organizations cascade`;
+    await tx`truncate links, notes, actions, voice_samples, voice_profiles, entities, signals, segments, incidents, users, organizations cascade`;
     await seedDemoData(tx);
   });
 }

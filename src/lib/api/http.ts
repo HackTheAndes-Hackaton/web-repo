@@ -42,6 +42,8 @@ function errorResponse(err: ApiError) {
 /** Errores de Postgres más comunes → respuestas legibles. */
 function fromPostgres(err: { code?: string; detail?: string; message?: string; constraint_name?: string }) {
   switch (err.code) {
+    case "P0001":
+      return new ApiError(409, "reviewed_evidence_frozen", "La evidencia revisada está congelada. Vuelve el vínculo a pendiente antes de recalcular.");
     case "23505":
       return new ApiError(409, "conflict", "Ya existe un registro con ese valor único.", err.detail);
     case "23503":

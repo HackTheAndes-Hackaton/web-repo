@@ -83,7 +83,8 @@ export async function getIncidentDetail(id: string, session: Session) {
       sql<Segment[]>`select * from segments where incident_id = ${id} order by idx`,
       sql<Signal[]>`select * from signals where incident_id = ${id} order by created_at`,
       sql<Entity[]>`select * from entities where incident_id = ${id} order by kind, value`,
-      sql<ActionLog[]>`select * from actions where incident_id = ${id} order by created_at`,
+      sql<ActionLog[]>`select * from actions where incident_id = ${id}
+        or link_id in (select id from links where incident_a=${id} or incident_b=${id}) order by created_at`,
       sql<Note[]>`select * from notes where incident_id = ${id} order by created_at`,
       sql<{ n: number }[]>`select count(*)::int as n from voice_samples where incident_id = ${id}`,
       incident.user_id

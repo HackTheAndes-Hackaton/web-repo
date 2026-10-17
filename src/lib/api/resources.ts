@@ -35,6 +35,8 @@ export interface ResourceDef {
   preparePatch?: (patch: Row) => Row;
   /** Columnas de un índice único: los duplicados se ignoran en lugar de fallar. */
   ignoreDuplicatesOn?: string[];
+  /** Columnas JSONB: se serializan explícitamente al escribir. */
+  jsonColumns?: string[];
 }
 
 // ---------- Campos reutilizables ----------
@@ -47,6 +49,10 @@ const ref = id;
 const text = (max = 2000) => z.string().trim().min(1).max(max);
 const datetime = z.iso.datetime({ offset: true });
 const nullable = <T extends z.ZodType>(s: T) => s.nullable().default(null);
+const metadata = z.record(z.string(), z.unknown());
+function withDefaults(shape: Record<string, z.ZodType>, values: Record<string, unknown> = {}) {
+  return Object.fromEntries(Object.entries(shape).map(([key, schema]) => [key, schema.default(key in values ? values[key] : null)]));
+}
 
 /** Esquema de actualización: todos los campos opcionales, sin valores por omisión. */
 function patchOf(shape: Record<string, z.ZodType>) {
@@ -79,6 +85,7 @@ const userFields = {
   name: text(200),
   role: z.enum(["usuario", "analista"]),
   org_id: ref.nullable(),
+  settings: metadata,
 };
 const users: ResourceDef = {
   name: "users",
@@ -86,9 +93,10 @@ const users: ResourceDef = {
   title: "Personas",
   description: "Personas que tuvieron la conversación (rol «usuario») y analistas del panel.",
   idPrefix: "usr",
-  columns: ["id", "name", "role", "org_id", "created_at"],
+  columns: ["id", "name", "role", "org_id", "settings", "created_at"],
+  jsonColumns: ["settings"],
   create: z
-    .object({ id: id.optional(), name: userFields.name, role: userFields.role.default("usuario"), org_id: nullable(ref) })
+    .object({ id: id.optional(), name: userFields.name, role: userFields.role.default("usuario"), org_id: nullable(ref), settings: metadata.default({}) })
     .strict(),
   update: patchOf(userFields),
   filters: ["role", "org_id"],
@@ -99,7 +107,35 @@ const users: ResourceDef = {
 };
 
 // ---------- Incidentes ----------
+const callData = {
+  client_call_id: text(200).nullable(),
+  provider_call_id: text(200).nullable(),
+  agent_session_id: text(200).nullable(),
+  caller_number_raw: z.string().max(100).nullable(),
+  caller_e164: z.string().regex(/^\+[1-9]\d{1,14}$/).nullable(),
+  caller_name: text(200).nullable(),
+  direction: z.enum(["incoming", "outgoing"]).nullable(),
+  call_status: z.enum(["ringing", "active", "ended", "rejected", "missed"]).nullable(),
+  answered_at: datetime.nullable(),
+  talk_duration_s: z.number().min(0).nullable(),
+  agent_status: text(40).nullable(),
+  ready_to_answer: z.boolean(),
+  simulated: z.boolean().nullable(),
+  blocked: z.boolean(),
+  analysis_status: z.enum(["pending", "running", "completed", "failed"]),
+  verdict: z.enum(["none", "safe", "suspicious", "scam"]),
+  risk_reasons: z.array(text(500)).max(30),
+  scam_type: text(200).nullable(),
+  impersonating: text(200).nullable(),
+  user_feedback: z.enum(["safe", "scam", "unsure"]).nullable(),
+  user_feedback_at: datetime.nullable(),
+  consent_snapshot: metadata,
+  analysis_meta: metadata,
+  shared_at: datetime.nullable(),
+  sharing_revoked_at: datetime.nullable(),
+};
 const incidentFields = {
+  ...callData,
   external_id: z.string().trim().min(1).max(200).nullable(),
   user_id: ref.nullable(),
   org_id: ref.nullable(),
@@ -138,7 +174,9 @@ const incidents: ResourceDef = {
     "analyst_status",
     "created_at",
     "updated_at",
+    ...Object.keys(callData),
   ],
+  jsonColumns: ["risk_reasons", "consent_snapshot", "analysis_meta"],
   create: z
     .object({
       id: id.optional(),
@@ -155,10 +193,11 @@ const incidents: ResourceDef = {
       summary: nullable(incidentFields.summary.unwrap()),
       recommendation: nullable(incidentFields.recommendation.unwrap()),
       analyst_status: incidentFields.analyst_status.default("nuevo"),
+      ...withDefaults(callData, { ready_to_answer: false, simulated: false, blocked: false, analysis_status: "pending", verdict: "none", risk_reasons: [], consent_snapshot: {}, analysis_meta: {} }),
     })
     .strict(),
   update: patchOf(incidentFields),
-  filters: ["org_id", "user_id", "status", "risk_level", "analyst_status", "channel", "external_id"],
+  filters: ["org_id", "user_id", "status", "risk_level", "analyst_status", "channel", "external_id", "client_call_id", "agent_session_id", "simulated", "verdict"],
   dateColumn: "started_at",
   order: { column: "started_at", dir: "desc" },
   childOfIncident: false,
@@ -186,6 +225,11 @@ const incidents: ResourceDef = {
 
 // ---------- Fragmentos de transcripción ----------
 const segmentFields = {
+  external_segment_id: text(200).nullable(),
+  flagged: z.boolean(),
+  is_final: z.boolean(),
+  end_offset: z.number().min(0).nullable(),
+  source: text(60).nullable(),
   idx: z.number().int().min(0),
   t_offset: z.number().min(0),
   speaker: z.string().trim().max(60).nullable(),
@@ -198,7 +242,7 @@ const segments: ResourceDef = {
   description:
     "Fragmentos de la transcripción, en orden. Si no se envía idx, se asigna el siguiente. t_offset = segundos desde el inicio.",
   idPrefix: "seg",
-  columns: ["id", "incident_id", "idx", "t_offset", "speaker", "text", "created_at"],
+  columns: ["id", "incident_id", "idx", "t_offset", "speaker", "text", "external_segment_id", "flagged", "is_final", "end_offset", "source", "created_at", "updated_at"],
   create: z
     .object({
       id: id.optional(),
@@ -208,9 +252,15 @@ const segments: ResourceDef = {
       speaker: nullable(segmentFields.speaker.unwrap()),
       text: segmentFields.text,
       created_at: datetime.optional(),
+      external_segment_id: nullable(text(200)),
+      flagged: z.boolean().default(false),
+      is_final: z.boolean().default(true),
+      end_offset: nullable(z.number().min(0)),
+      source: nullable(text(60)),
     })
     .strict(),
   update: patchOf(segmentFields),
+  preparePatch: (patch) => ({ ...patch, updated_at: nowIso() }),
   filters: ["incident_id", "speaker"],
   dateColumn: "created_at",
   order: { column: "idx", dir: "asc" },
@@ -234,6 +284,7 @@ const segments: ResourceDef = {
 
 // ---------- Señales ----------
 const signalFields = {
+  analysis_meta: metadata,
   segment_id: ref.nullable(),
   type: z.string().trim().min(1).max(64),
   evidence: text(4000),
@@ -248,7 +299,8 @@ const signals: ResourceDef = {
   description:
     "Señales inferidas por la IA. Tipos conocidos: urgencia, dinero, datos_sensibles, secreto, amenaza, suplantacion, aislamiento (se aceptan otros).",
   idPrefix: "sig",
-  columns: ["id", "incident_id", "segment_id", "type", "evidence", "explanation", "confidence", "source", "created_at"],
+  columns: ["id", "incident_id", "segment_id", "type", "evidence", "explanation", "confidence", "source", "analysis_meta", "created_at"],
+  jsonColumns: ["analysis_meta"],
   create: z
     .object({
       id: id.optional(),
@@ -259,6 +311,7 @@ const signals: ResourceDef = {
       explanation: signalFields.explanation,
       confidence: signalFields.confidence.default(0.5),
       source: signalFields.source.default("ia"),
+      analysis_meta: metadata.default({}),
       created_at: datetime.optional(),
     })
     .strict(),
@@ -272,6 +325,7 @@ const signals: ResourceDef = {
 
 // ---------- Datos observados ----------
 const entityFields = {
+  analysis_meta: metadata,
   segment_id: ref.nullable(),
   kind: z.string().trim().min(1).max(40),
   value: text(500),
@@ -285,7 +339,8 @@ const entities: ResourceDef = {
   description:
     "Teléfonos, cuentas, montos, nombres, organizaciones o lugares. normalized se calcula si no se envía; un dato repetido en el mismo incidente se ignora. provenance: mencionado | mostrado | reportado_usuario.",
   idPrefix: "ent",
-  columns: ["id", "incident_id", "segment_id", "kind", "value", "normalized", "provenance", "created_at"],
+  columns: ["id", "incident_id", "segment_id", "kind", "value", "normalized", "provenance", "analysis_meta", "created_at"],
+  jsonColumns: ["analysis_meta"],
   create: z
     .object({
       id: id.optional(),
@@ -295,6 +350,7 @@ const entities: ResourceDef = {
       value: entityFields.value,
       normalized: entityFields.normalized.optional(),
       provenance: entityFields.provenance.default("mencionado"),
+      analysis_meta: metadata.default({}),
       created_at: datetime.optional(),
     })
     .strict(),
@@ -312,6 +368,17 @@ const entities: ResourceDef = {
 };
 
 // ---------- Muestras de voz ----------
+const voiceFields = {
+  duration_s: z.number().min(0).nullable(),
+  profile_id: ref.nullable(),
+  model_id: text(200).nullable(),
+  model_version: text(100).nullable(),
+  speaker: z.enum(["caller", "agent", "user", "unknown"]),
+  quality_status: z.enum(["pending", "usable", "rejected"]),
+  review_status: z.enum(["pendiente", "aprobada", "rechazada"]),
+  reference_enabled: z.boolean(),
+  source_session_ref: text(200).nullable(),
+};
 const voiceSamples: ResourceDef = {
   name: "voice-samples",
   table: "voice_samples",
@@ -319,18 +386,18 @@ const voiceSamples: ResourceDef = {
   description:
     "Embeddings de voz (dato biométrico sensible). Se usan para proponer vínculos por similitud; la API nunca los devuelve.",
   idPrefix: "voz",
-  columns: ["id", "incident_id", "duration_s", "created_at"],
+  columns: ["id", "incident_id", ...Object.keys(voiceFields), "embedding_dims", "created_at"],
   create: z
     .object({
       id: id.optional(),
       incident_id: ref,
-      embedding: z.array(z.number()).min(16).max(4096),
-      duration_s: nullable(z.number().min(0)),
+      embedding: z.array(z.number()).min(16).max(4096).refine((v) => v.some((x) => x !== 0), "El embedding no puede ser un vector cero."),
+      ...withDefaults(voiceFields, { speaker: "unknown", quality_status: "pending", review_status: "pendiente", reference_enabled: false }),
       created_at: datetime.optional(),
     })
     .strict(),
-  update: patchOf({ duration_s: z.number().min(0).nullable() }),
-  filters: ["incident_id"],
+  update: patchOf(voiceFields),
+  filters: ["incident_id", "profile_id", "model_id", "review_status", "reference_enabled"],
   dateColumn: "created_at",
   order: { column: "created_at", dir: "asc" },
   childOfIncident: true,
@@ -338,16 +405,32 @@ const voiceSamples: ResourceDef = {
     withIdAndTimes("voz", rows).map((r) => ({ ...r, embedding: toVector(r.embedding as number[]) })),
 };
 
+const voiceProfiles: ResourceDef = {
+  name: "voice-profiles", table: "voice_profiles", title: "Perfiles vocales",
+  description: "Agrupaciones vocales revisables con código estable; no acreditan identidad personal.",
+  idPrefix: "vp", columns: ["id", "org_id", "public_code", "status", "simulated", "created_at"],
+  create: z.object({ id: id.optional(), org_id: ref, public_code: text(80), status: z.enum(["provisional", "revisado", "descartado"]).default("provisional"), simulated: z.boolean().default(false) }).strict(),
+  update: patchOf({ public_code: text(80), status: z.enum(["provisional", "revisado", "descartado"]) }),
+  filters: ["org_id", "status", "simulated"], dateColumn: "created_at", order: { column: "created_at", dir: "desc" },
+  childOfIncident: false, prepare: async (rows) => withIdAndTimes("vp", rows),
+};
+
 // ---------- Bitácora ----------
-const actionFields = { kind: z.string().trim().min(1).max(60), detail: text(2000) };
+const actionData = {
+  actor_id: ref.nullable(), actor_kind: z.enum(["user", "analyst", "service", "system"]),
+  result: z.enum(["requested", "applied", "failed"]), request_id: text(200).nullable(),
+  link_id: ref.nullable(), payload: metadata,
+};
+const actionFields = { kind: z.string().trim().min(1).max(60), detail: text(2000), ...actionData };
 const actions: ResourceDef = {
   name: "actions",
   table: "actions",
   title: "Acciones y permisos",
   description: "Bitácora del incidente: captura iniciada, alerta mostrada, permiso otorgado, etc.",
   idPrefix: "act",
-  columns: ["id", "incident_id", "kind", "detail", "created_at"],
-  create: z.object({ id: id.optional(), incident_id: ref, ...actionFields, created_at: datetime.optional() }).strict(),
+  columns: ["id", "incident_id", "kind", "detail", ...Object.keys(actionData), "created_at"],
+  jsonColumns: ["payload"],
+  create: z.object({ id: id.optional(), incident_id: ref, kind: actionFields.kind, detail: actionFields.detail, ...withDefaults(actionData, { actor_kind: "system", result: "applied", payload: {} }), created_at: datetime.optional() }).strict(),
   update: patchOf(actionFields),
   filters: ["incident_id", "kind"],
   dateColumn: "created_at",
@@ -394,6 +477,8 @@ const notes: ResourceDef = {
 // ---------- Vínculos ----------
 const reason = z.object({ kind: z.string().min(1).max(40), detail: text(500) }).strict();
 const linkFields = {
+  reviewed_by_id: ref.nullable(),
+  evidence_snapshot: metadata,
   score: z.number().min(0).max(1),
   voice_sim: z.number().min(-1).max(1).nullable(),
   content_sim: z.number().min(0).max(1),
@@ -422,7 +507,9 @@ const links: ResourceDef = {
     "reviewed_at",
     "note",
     "created_at",
+    "reviewed_by_id", "evidence_snapshot", "evidence_version", "reviewed_evidence_version", "reviewed_evidence",
   ],
+  jsonColumns: ["reasons", "evidence_snapshot"],
   create: z
     .object({
       id: id.optional(),
@@ -434,6 +521,8 @@ const links: ResourceDef = {
       reasons: linkFields.reasons.default([]),
       status: linkFields.status.default("pendiente"),
       reviewed_by: nullable(linkFields.reviewed_by.unwrap()),
+      reviewed_by_id: nullable(ref),
+      evidence_snapshot: metadata.default({}),
       note: nullable(linkFields.note.unwrap()),
     })
     .strict()
@@ -467,6 +556,7 @@ export const RESOURCES: ResourceDef[] = [
   signals,
   entities,
   voiceSamples,
+  voiceProfiles,
   actions,
   notes,
   links,

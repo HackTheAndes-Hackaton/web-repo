@@ -54,7 +54,7 @@ async function loadProfiles(sql: Db, ids: string[]) {
   const [texts, types, entities] = await Promise.all([
     sql<{ incident_id: string; text: string }[]>`
       select incident_id, string_agg(text, ' ' order by idx) as text
-      from segments where incident_id in ${sql(ids)} group by incident_id`,
+      from segments where incident_id in ${sql(ids)} and speaker = 'caller' and is_final group by incident_id`,
     sql<{ incident_id: string; type: SignalType }[]>`
       select distinct incident_id, type from signals where incident_id in ${sql(ids)}`,
     sql<{ incident_id: string; kind: EntityKind; normalized: string; value: string }[]>`
@@ -74,13 +74,29 @@ async function loadProfiles(sql: Db, ids: string[]) {
  * caso, calculada en Postgres con pgvector (distancia coseno).
  */
 async function voiceSimilarity(sql: Db, id: string, others: string[]) {
-  const rows = await sql<{ incident_id: string; sim: number }[]>`
-    select b.incident_id, max(1 - (a.embedding operator(extensions.<=>) b.embedding))::float8 as sim
-    from voice_samples a
-    join voice_samples b on b.incident_id in ${sql(others)}
-    where a.incident_id = ${id}
-    group by b.incident_id`;
-  return new Map(rows.map((r) => [r.incident_id, r.sim]));
+  const rows = await sql<{ incident_id: string; sim: number; sample_a: string; sample_b: string; model_id: string; model_version: string }[]>`
+    with eligible as (
+      select v.*, i.consent_snapshot, p.status as profile_status from voice_samples v
+      join incidents i on i.id=v.incident_id left join voice_profiles p on p.id=v.profile_id
+      where (v.incident_id=${id} or v.incident_id in ${sql(others)})
+        and v.speaker='caller' and v.quality_status='usable' and v.review_status<>'rechazada'
+        and v.model_id is not null and v.model_version is not null
+        and (v.profile_id is null or (p.org_id=i.org_id and p.simulated=i.simulated))
+        and i.consent_snapshot->'voice_storage' = 'true'::jsonb
+    ), pairs as (
+      select b.incident_id, a.id as sample_a, b.id as sample_b, a.model_id, a.model_version,
+        case when a.model_id=b.model_id and a.model_version=b.model_version and a.embedding_dims=b.embedding_dims
+          then (1 - (a.embedding operator(extensions.<=>) b.embedding))::float8 end as sim
+      from eligible a join eligible b on b.incident_id in ${sql(others)}
+      where a.incident_id=${id} and (
+        (a.reference_enabled and a.review_status='aprobada' and coalesce(a.profile_status<>'descartado',true)
+          and a.consent_snapshot->'voice_reference'='true'::jsonb)
+        or (b.reference_enabled and b.review_status='aprobada' and coalesce(b.profile_status<>'descartado',true)
+          and b.consent_snapshot->'voice_reference'='true'::jsonb)
+      )
+    ) select distinct on (incident_id) * from pairs where sim is not null and sim between -1 and 1
+      order by incident_id, sim desc, sample_a, sample_b`;
+  return new Map(rows.map((r) => [r.incident_id, r]));
 }
 
 const STRONG_KINDS: EntityKind[] = ["telefono", "cuenta"];
@@ -133,17 +149,18 @@ function compare(a: Profile, b: Profile, voiceSim: number | null) {
 /** Recalcula vínculos del incidente contra los demás casos compartidos con su organización. */
 export async function refreshLinksFor(incidentId: string, tx?: Db) {
   const sql = tx ?? (await db());
-  const [inc] = await sql<{ id: string; org_id: string | null }[]>`
-    select id, org_id from incidents where id = ${incidentId}`;
+  const [inc] = await sql<{ id: string; org_id: string | null; simulated: boolean | null }[]>`
+    select id, org_id, simulated from incidents where id = ${incidentId}`;
   if (!inc) return;
   if (!inc.org_id) {
     // Si deja de compartirse, se quitan los vínculos que aún no revisó nadie.
     await sql`delete from links where (incident_a = ${incidentId} or incident_b = ${incidentId}) and status = 'pendiente'`;
     return;
   }
+  if (inc.simulated === null) return; // El origen histórico debe clasificarse antes de mezclar datos.
 
   const others = (
-    await sql<{ id: string }[]>`select id from incidents where org_id = ${inc.org_id} and id != ${incidentId}`
+    await sql<{ id: string }[]>`select id from incidents where org_id = ${inc.org_id} and simulated=${inc.simulated} and id != ${incidentId}`
   ).map((r) => r.id);
   if (!others.length) return;
 
@@ -157,21 +174,28 @@ export async function refreshLinksFor(incidentId: string, tx?: Db) {
 
   for (const id of others) {
     const [a, b] = incidentId < id ? [incidentId, id] : [id, incidentId];
-    const result = compare(me, profiles.get(id)!, voices.get(id) ?? null);
+    const voice = voices.get(id);
+    const result = compare(me, profiles.get(id)!, voice?.sim ?? null);
     const prev = existing.find((l) => l.incident_a === a && l.incident_b === b);
+    // La decisión humana conserva exactamente las puntuaciones y razones que revisó.
+    if (prev && prev.status !== "pendiente") continue;
 
     if (!result.propose) {
-      if (prev?.status === "pendiente") await sql`delete from links where id = ${prev.id}`;
+      if (prev?.status === "pendiente") await sql`delete from links where id = ${prev.id} and status='pendiente'`;
       continue;
     }
     const reasons = sql.json(result.reasons as unknown as postgres.JSONValue);
-    if (prev) {
-      await sql`update links set score = ${result.score}, voice_sim = ${result.voiceSim},
-                content_sim = ${result.contentSim}, reasons = ${reasons} where id = ${prev.id}`;
-    } else {
-      await sql`insert into links (id, incident_a, incident_b, score, voice_sim, content_sim, reasons, status, created_at)
-                values (${newId("lnk")}, ${a}, ${b}, ${result.score}, ${result.voiceSim}, ${result.contentSim},
-                        ${reasons}, 'pendiente', ${nowIso()})`;
-    }
+    const evidence = sql.json({
+      algorithm: "links-v2", metric: "cosine", voice_threshold: 0.8,
+      sample_a: voice ? (a === incidentId ? voice.sample_a : voice.sample_b) : null,
+      sample_b: voice ? (a === incidentId ? voice.sample_b : voice.sample_a) : null,
+      model_id: voice?.model_id ?? null, model_version: voice?.model_version ?? null,
+      weights: voice ? { voice: 0.45, entities: 0.35, content: 0.2 } : { entities: 0.6, content: 0.4 },
+    });
+    await sql`insert into links (id,incident_a,incident_b,score,voice_sim,content_sim,reasons,evidence_snapshot,status,created_at)
+      values (${newId("lnk")},${a},${b},${result.score},${result.voiceSim},${result.contentSim},${reasons},${evidence},'pendiente',${nowIso()})
+      on conflict (incident_a,incident_b) do update set score=excluded.score, voice_sim=excluded.voice_sim,
+        content_sim=excluded.content_sim, reasons=excluded.reasons, evidence_snapshot=excluded.evidence_snapshot
+      where links.status='pendiente'`;
   }
 }

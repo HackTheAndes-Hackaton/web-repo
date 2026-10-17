@@ -36,6 +36,7 @@ function LinkCard({ l }: { l: LinkView }) {
         <div className="flex items-center gap-2">
           <LinkStatusTag status={l.status} />
           <span className="text-xs text-muted">Puntaje combinado {pct(l.score)}</span>
+          <span className="text-xs text-muted">Evidencia v{l.evidence_version}{l.status !== "pendiente" ? " · conservada al revisar" : ""}</span>
         </div>
         {l.reviewed_by && l.reviewed_at && (
           <span className="text-xs text-muted">
@@ -75,7 +76,7 @@ function LinkCard({ l }: { l: LinkView }) {
             </button>
           </>
         ) : (
-          <button className={buttonCls.ghost}>Volver a pendiente</button>
+          <button className={buttonCls.ghost}>Volver a pendiente para recalcular</button>
         )}
       </form>
     </li>
