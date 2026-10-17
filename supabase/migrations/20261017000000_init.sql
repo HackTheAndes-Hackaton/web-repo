@@ -1,4 +1,4 @@
--- Esquema inicial de Centinela para Supabase (Postgres).
+-- Esquema inicial de Tiskz para Supabase (Postgres).
 -- Es idempotente: se puede aplicar con `npm run db:migrate`, `supabase db push`,
 -- pegarlo en el SQL Editor o dejar que la app lo aplique sola en el primer arranque.
 

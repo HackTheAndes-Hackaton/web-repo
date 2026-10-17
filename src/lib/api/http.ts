@@ -35,7 +35,7 @@ export function okList(data: unknown[], pagination: { limit: number; offset: num
 function errorResponse(err: ApiError) {
   return Response.json(
     { error: { code: err.code, message: err.message, ...(err.details ? { details: err.details } : {}) } },
-    { status: err.status, headers: err.status === 401 ? { "WWW-Authenticate": 'Bearer realm="centinela"' } : undefined },
+    { status: err.status, headers: err.status === 401 ? { "WWW-Authenticate": 'Bearer realm="tiskz"' } : undefined },
   );
 }
 

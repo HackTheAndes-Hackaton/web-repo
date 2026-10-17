@@ -8,9 +8,9 @@ import { seedDemoData } from "./seed";
 /**
  * Conexión a Supabase (Postgres) desde el servidor.
  *
- * DATABASE_URL es la cadena de conexión del proyecto de Supabase
- * (Project Settings → Database → Connection string). Se recomienda el pooler
- * en modo transacción (puerto 6543), que no admite sentencias preparadas.
+ * DATABASE_URL es la cadena del Session pooler de Supabase (IPv4, puerto 5432;
+ * funciona en local y en Vercel). La conexión directa db.<ref>.supabase.co es
+ * solo IPv6 y no sirve en Vercel.
  */
 
 export type Sql = postgres.Sql;
@@ -40,8 +40,11 @@ function createClient(): Sql {
   // postgres.js enviaría al servidor; el SSL se configura abajo.
   const clean = new URL(url);
   clean.search = "";
+  // El Transaction pooler (6543) se cuelga cuando postgres.js encadena consultas
+  // en la misma conexión; el Session pooler del mismo host no tiene ese problema.
+  if (clean.hostname.endsWith(".pooler.supabase.com") && clean.port === "6543") clean.port = "5432";
   return postgres(clean.toString(), {
-    prepare: false, // requerido por el pooler de Supabase en modo transacción
+    prepare: false, // compatible con cualquier modo del pooler de Supabase
     ssl: local ? false : "require",
     max: Number(process.env.DATABASE_POOL_MAX ?? (local ? 1 : 5)),
     idle_timeout: 20,

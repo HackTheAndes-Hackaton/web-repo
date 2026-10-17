@@ -13,7 +13,6 @@ export default function Home() {
             <ShieldCheck size={20} />
           </span>
           {APP_NAME}
-          <span className="text-xs font-normal text-muted">(nombre provisional)</span>
         </div>
         <h1 className="text-2xl font-semibold tracking-tight text-balance">Panel de análisis de incidentes</h1>
         <p className="mt-2 text-sm text-fg-2">

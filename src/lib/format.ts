@@ -1,5 +1,4 @@
-/** Nombre provisional; el nombre comercial está pendiente. */
-export const APP_NAME = "Centinela";
+export const APP_NAME = "Tiskz";
 
 const dateTime = new Intl.DateTimeFormat("es-MX", { dateStyle: "medium", timeStyle: "short" });
 const timeOnly = new Intl.DateTimeFormat("es-MX", { timeStyle: "short" });
