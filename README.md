@@ -1,36 +1,58 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Centinela (nombre provisional)
 
-## Getting Started
+Asistente contra estafas y extorsiones. La persona usuaria activa el micrófono del celular o la computadora durante una
+conversación, la IA señala posibles señales de engaño en vivo y se genera un reporte revisable. Un panel permite a una
+organización autorizada revisar los casos que le compartieron y explorar posibles vínculos entre ellos.
 
-First, run the development server:
+Next.js 16 (App Router) + Supabase (Postgres con `pgvector`).
+
+## Configurar Supabase
+
+1. Crea un proyecto en [supabase.com](https://supabase.com).
+2. En **Project Settings → Database → Connection string**, copia la cadena del **Transaction pooler** (puerto 6543).
+3. Copia `.env.example` a `.env.local` y pega la cadena en `DATABASE_URL`, con la contraseña de la base de datos.
+4. Crea las tablas con cualquiera de estas opciones:
+   - `npm run db:migrate`
+   - pegar `supabase/migrations/20261017000000_init.sql` en el **SQL Editor** de Supabase
+   - `supabase db push` con la CLI de Supabase
+
+   Si no lo haces, la app aplica el esquema sola la primera vez que consulta la base.
+
+Los datos de demo (ficticios) se cargan automáticamente cuando la tabla `users` está vacía. Se pueden volver a cargar
+con **Restablecer datos de demo** en la página de inicio.
+
+### Seguridad
+
+- La app accede a Postgres **solo desde el servidor**. Todas las tablas tienen RLS activado y sin políticas, así que la
+  API pública de Supabase (claves `anon` / `authenticated`) no puede leer nada, incluidos los embeddings de voz.
+- Nunca expongas `DATABASE_URL` en el cliente ni la subas al repositorio (`.env*` está en `.gitignore`).
+- La sesión actual es de demostración (una cookie elige el perfil). Para producción hay que reemplazarla por Supabase Auth.
+
+## Desarrollo
 
 ```bash
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Abre http://localhost:3000 y elige un perfil: **usuario** (captura y reportes) o **analista** (panel).
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+Variables opcionales en `.env.local`:
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+| Variable | Uso |
+| --- | --- |
+| `ANTHROPIC_API_KEY` | Analiza cada fragmento con Claude. Sin ella se usan reglas locales. |
+| `CLAUDE_MODEL` | Modelo de Claude (por defecto `claude-opus-5-5`). |
+| `ANALYSIS_MODE` | `reglas` o `claude` para forzar el motor de análisis. |
+| `DATABASE_POOL_MAX` | Conexiones simultáneas a Postgres (por defecto 5). |
 
-## Learn More
+## Captura en el celular
 
-To learn more about Next.js, take a look at the following resources:
+La transcripción usa la Web Speech API del navegador (Chrome o Edge en Android y escritorio). Se pide permiso de
+micrófono al iniciar la captura. También se pueden escribir frases o reproducir los guiones de demo.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Limitaciones conocidas
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- Las actualizaciones en vivo usan Server-Sent Events con un bus en memoria: funcionan con un solo proceso
+  (`next dev` / `next start`). En un despliegue serverless (por ejemplo Vercel) hay que cambiarlo por Supabase Realtime.
+- La similitud de voz solo existe si un servicio externo envía embeddings a `POST /api/incidents/:id/voice`.
