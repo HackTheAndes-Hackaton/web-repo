@@ -6,7 +6,6 @@ import { caseCode, type IncidentDetail } from "@/lib/repo";
 import { scamTypeLabel } from "@/lib/types";
 import { ComplaintSheet, Conversation, EntityTable, RiskMeter, SignalList } from "./incident-parts";
 import { commonTrait } from "./LinkGraph";
-import { PrintButton } from "./PrintButton";
 import { NetworkOriginPanel } from "./NetworkOriginPanel";
 import { CallerNumber, Card, IconBubble, PageHeader, Pill, RiskBadge, ScamTypeChip, VerdictBadge } from "./ui";
 
@@ -121,7 +120,12 @@ export function IncidentReport({ detail, tab = "ia" }: { detail: IncidentDetail;
             {incident.external_id && <Pill icon={<Hash size={12} aria-hidden />}>{incident.external_id}</Pill>}
           </>
         }
-        actions={<PrintButton />}
+        actions={relatedGroup?.links.every((link) => link.explanation_eligible) &&
+          relatedGroup.incidentIds.length >= 2 ?
+          <Link href={`/panel/informes#${relatedGroup.anchor}`}
+            className="inline-flex rounded-full border border-line px-4 py-2 text-sm font-semibold hover:bg-surface-2">
+            Informe PDF del conjunto
+          </Link> : undefined}
       />
 
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_20rem]">

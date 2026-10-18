@@ -52,6 +52,12 @@ test('flujo ficticio: cierres, vínculo, informe, PDF solicitado y revocación',
       assert.equal(result.status,'completed');
       cases.push(result.incident_id);
     }
+    await sql`insert into segments(id,incident_id,idx,speaker,text,t_offset,flagged) values
+      ('chat-a-1',${cases[0]},0,'caller',
+        'Le llamo para solicitar una transferencia urgente a la cuenta BCP 191-1234567-0-01. Este mensaje de prueba es suficientemente largo para comprobar que la tabla del informe distribuya la conversación en varias líneas sin cortar el contenido.',0,true),
+      ('chat-a-2',${cases[0]},1,'user','Verificaré el pedido con el banco por un canal independiente.',19,false),
+      ('chat-b-1',${cases[1]},0,'caller','Debe enviar el dinero de inmediato a la misma cuenta BCP.',0,true),
+      ('chat-b-2',${cases[1]},1,'agent','La llamada es sospechosa. No comparta claves ni transfiera dinero.',24,false)`;
     await refreshLinksFor(cases[1],sql);
     const [link]=await sql`select * from links where incident_a=any(${cases}) and incident_b=any(${cases})`;
     assert.ok(link,'la cuenta BCP repetida debe producir un vínculo');
@@ -68,6 +74,7 @@ test('flujo ficticio: cierres, vínculo, informe, PDF solicitado y revocación',
     const report=await createReportVersion({orgId:'org',analystId:'analyst',caseIds:cases,
       linkIds:[link.id],title:'Informe ficticio de dos llamadas'},sql);
     assert.equal(report.snapshot.cases.length,2);
+    assert.deepEqual(report.snapshot.cases.map(item=>item.transcript.length),[2,2]);
     assert.equal(report.snapshot.links[0].evidence_snapshot.ai_explanation.status,'completed');
     assert.equal((await listLatestReportVersions('org',sql))[0].id,report.id);
     const beforePdf=modelCalls+comparisonCalls;

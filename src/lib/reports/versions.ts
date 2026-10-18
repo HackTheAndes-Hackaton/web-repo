@@ -26,14 +26,17 @@ type LinkRow = {
 };
 type SignalRow = {incident_id:string;type:string;evidence:string;explanation:string;confidence:number;source:string};
 type EntityRow = {incident_id:string;kind:string;value:string;normalized:string;provenance:string};
+type TranscriptRow = {incident_id:string;idx:number;speaker:string|null;text:string;t_offset:number;flagged:boolean};
 
 export type ReportCase = Omit<CaseRow,"org_id"|"simulated"|"sharing_revoked_at"|"analysis_meta"|"consent_snapshot"> & {
   maritime:{model_id:string|null;prompt_version:string|null;limitations:string[]};
   signals:Omit<SignalRow,"incident_id">[];entities:Omit<EntityRow,"incident_id">[];
+  /** Ausente solo en versiones anteriores a la incorporación de conversaciones. */
+  transcript?:Omit<TranscriptRow,"incident_id">[];
 };
 export type ReportLink = Omit<LinkRow,"reviewed_evidence"> & {reviewed_evidence:Record<string,unknown>|null};
 export type ReportSnapshot = {
-  schema_version:1; captured_at:string; organization:{id:string;name:string};
+  schema_version:1|2; captured_at:string; organization:{id:string;name:string};
   selected_case_ids:string[]; selected_link_ids:string[];
   cases:ReportCase[];links:ReportLink[];
   caveat:string;
@@ -119,11 +122,13 @@ export async function createReportVersion(input:{orgId:string;analystId:string;c
     if(!completeGroup||completeGroup.incidentIds.join(',')!==caseIds.join(',')||
       completeGroup.links.map(link=>link.id).sort().join(',')!==linkIds.join(','))
       throw new ReportVersionError("incomplete_group","El informe debe incluir todos los casos y vínculos vigentes del conjunto identificado.");
-    const [signals,entities]=await Promise.all([
+    const [signals,entities,transcript]=await Promise.all([
       tx<SignalRow[]>`select incident_id,type,evidence,explanation,confidence,source from signals
         where incident_id=any(${caseIds}::text[]) order by incident_id,created_at,id`,
       tx<EntityRow[]>`select incident_id,kind,value,normalized,provenance from entities
         where incident_id=any(${caseIds}::text[]) order by incident_id,kind,normalized,id`,
+      tx<TranscriptRow[]>`select incident_id,idx,speaker,text,t_offset,flagged from segments
+        where incident_id=any(${caseIds}::text[]) order by incident_id,idx,created_at,id`,
     ]);
     const reportCases:ReportCase[]=cases.sort((a,b)=>a.started_at.localeCompare(b.started_at)||a.id.localeCompare(b.id))
       .map(row=>({id:row.id,title:row.title,started_at:row.started_at,ended_at:row.ended_at,status:row.status,
@@ -134,9 +139,11 @@ export async function createReportVersion(input:{orgId:string;analystId:string;c
         signals:signals.filter(signal=>signal.incident_id===row.id).map(signal=>({type:signal.type,evidence:signal.evidence,
           explanation:signal.explanation,confidence:signal.confidence,source:signal.source})),
         entities:entities.filter(entity=>entity.incident_id===row.id).map(entity=>({kind:entity.kind,value:entity.value,
-          normalized:entity.normalized,provenance:entity.provenance}))}));
+          normalized:entity.normalized,provenance:entity.provenance})),
+        transcript:transcript.filter(line=>line.incident_id===row.id).map(line=>({idx:line.idx,speaker:line.speaker,
+          text:line.text,t_offset:line.t_offset,flagged:line.flagged}))}));
     const reportLinks=links.sort((a,b)=>a.id.localeCompare(b.id));
-    const snapshot:ReportSnapshot={schema_version:1,captured_at:new Date().toISOString(),organization:org,
+    const snapshot:ReportSnapshot={schema_version:2,captured_at:new Date().toISOString(),organization:org,
       selected_case_ids:caseIds,selected_link_ids:linkIds,cases:reportCases,links:reportLinks,
       caveat:"Agrupación preliminar de casos ficticios. Los indicios y coincidencias no identifican a una persona ni sustituyen la revisión policial."};
     const summary=`Informe preliminar de ${reportCases.length} casos ficticios y ${reportLinks.length} vínculos seleccionados. `+

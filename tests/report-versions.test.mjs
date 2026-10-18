@@ -31,6 +31,10 @@ async function fixture(sql) {
       ('b','org','Segundo caso','finalizado',true,'Se repite una petición de dinero.',${sql.json(meta)},${sql.json(consent)})`;
   await sql`insert into signals(id,incident_id,type,evidence,explanation,confidence,source)
     values ('signal-a','a','urgencia','','Presión para transferir.',0.8,'maritime')`;
+  await sql`insert into segments(id,incident_id,idx,speaker,text,t_offset,flagged)
+    values ('segment-a-1','a',0,'caller','Solicito una transferencia.',0,true),
+      ('segment-a-2','a',1,'user','Voy a verificar por otro canal.',12,false),
+      ('segment-b-1','b',0,'caller','Repito la solicitud de dinero.',0,true)`;
   await sql`insert into entities(id,incident_id,kind,value,normalized,provenance)
     values ('entity-a','a','cuenta','1234567890','1234567890','mencionado')`;
   await sql`insert into links(id,incident_a,incident_b,score,reasons,evidence_snapshot)
@@ -53,19 +57,26 @@ test('versiones conservan selección, hallazgos y revisión anteriores aunque ca
     assert.deepEqual(first.snapshot.selected_link_ids,['ab']);
     assert.equal(first.snapshot.cases[0].signals[0].explanation,'Presión para transferir.');
     assert.equal(first.snapshot.cases[0].entities[0].value,'1234567890');
+    assert.deepEqual(first.snapshot.cases[0].transcript.map(line=>line.text),
+      ['Solicito una transferencia.','Voy a verificar por otro canal.']);
+    assert.equal(first.snapshot.cases[1].transcript[0].text,'Repito la solicitud de dinero.');
+    assert.equal(first.snapshot.schema_version,2);
     assert.equal(first.snapshot.links[0].evidence_snapshot.ai_explanation.behavior_similarity,'similar');
     assert.equal(first.content_sha256,crypto.createHash('sha256').update(stable({title:first.title,summary:first.summary,snapshot:first.snapshot})).digest('hex'));
     await sql`update incidents set summary='Resumen corregido.' where id='a'`;
+    await sql`update segments set text='Texto corregido después.' where id='segment-a-1'`;
     await sql`update links set status='confirmado',reviewed_by='Analista',reviewed_by_id='analyst',
       note='Coincidencia verificada en los resúmenes.' where id='ab'`;
     const second=await createReportVersion({...input,seriesId:first.series_id},sql);
     assert.equal(second.version,2);
     assert.equal(second.snapshot.cases[0].summary,'Resumen corregido.');
+    assert.equal(second.snapshot.cases[0].transcript[0].text,'Texto corregido después.');
     assert.equal(second.snapshot.links[0].status,'confirmado');
     assert.equal(second.snapshot.links[0].note,'Coincidencia verificada en los resúmenes.');
     assert.equal(second.snapshot.links[0].reviewed_evidence_version,second.snapshot.links[0].evidence_version);
     const historical=await getReportVersion('org',first.id,sql);
     assert.equal(historical.snapshot.cases[0].summary,'Se solicita transferir dinero.');
+    assert.equal(historical.snapshot.cases[0].transcript[0].text,'Solicito una transferencia.');
     assert.equal(historical.snapshot.links[0].status,'pendiente');
     assert.equal((await listLatestReportVersions('org',sql))[0].id,second.id);
     await assert.rejects(sql`update report_versions set title='Manipulado' where id=${first.id}`,error=>error.code==='P0001');

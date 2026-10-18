@@ -3,10 +3,8 @@ import pdfLib from './vendor/pdf-lib.cjs';
 const {PDFDocument, StandardFonts, rgb, PageSizes} = pdfLib;
 const margin = 46;
 const bottom = 69;
-const ink = rgb(0.14, 0.17, 0.20);
-const muted = rgb(0.38, 0.42, 0.46);
-const rule = rgb(0.76, 0.79, 0.82);
-const shade = rgb(0.93, 0.94, 0.95);
+const ink = rgb(0, 0, 0);
+const rule = rgb(0, 0, 0);
 
 function printable(value) {
   return String(value ?? '').normalize('NFKC')
@@ -52,15 +50,23 @@ function value(item) {
 
 function caseRef(id) { return `#${String(id).slice(-8).toUpperCase()}`; }
 function percent(number) { return number===null||number===undefined?'No consta':`${Math.round(Number(number)*100)} %`; }
+function timeOffset(seconds) {
+  if(!Number.isFinite(seconds)||seconds<0) return 'No consta';
+  const whole=Math.floor(seconds);
+  return `${String(Math.floor(whole/60)).padStart(2,'0')}:${String(whole%60).padStart(2,'0')}`;
+}
+function speaker(value) {
+  return {agent:'Asistente',user:'Titular',caller:'Quien llama'}[value]??value??'No identificado';
+}
 
 /** Renders the saved, authorized snapshot for one complete identified group. */
 export async function renderReportPdf(report) {
   const pdf=await PDFDocument.create();
   pdf.setTitle(`Informe preliminar - ${report.title} - v${report.version}`);
-  pdf.setAuthor('Tiskz - panel de análisis');
+  pdf.setAuthor(`${report.snapshot.organization.name} - PhoneWard`);
   pdf.setSubject('Informe preliminar de un conjunto de casos ficticios');
-  const regular=await pdf.embedFont(StandardFonts.Helvetica);
-  const bold=await pdf.embedFont(StandardFonts.HelveticaBold);
+  const regular=await pdf.embedFont(StandardFonts.TimesRoman);
+  const bold=await pdf.embedFont(StandardFonts.TimesRomanBold);
   const [width,height]=PageSizes.A4;
   const contentWidth=width-margin*2;
   let page;
@@ -94,7 +100,7 @@ export async function renderReportPdf(report) {
   }
   function table(columns,rows,title=null) {
     const widths=columns.map(column=>column.width*contentWidth);
-    const size=8.2;
+    const size=8.5;
     const lineHeight=11.3;
     const padding=5;
     const tableFont=regular;
@@ -109,7 +115,7 @@ export async function renderReportPdf(report) {
       let x=margin;
       for(let index=0;index<cells.length;index++) {
         page.drawRectangle({x,y:y-height,width:widths[index],height,
-          borderColor:rule,borderWidth:0.5,color:header?shade:rgb(1,1,1)});
+          borderColor:rule,borderWidth:0.8,color:rgb(1,1,1)});
         for(const [lineIndex,line] of cells[index].entries()) {
           if(line) page.drawText(line,{x:x+padding,y:y-padding-size-lineIndex*lineHeight,
             size,font:header?bold:tableFont,color:ink});
@@ -151,6 +157,7 @@ export async function renderReportPdf(report) {
     ['Fecha de emisión',date(report.created_at)],
     ['Preparado por',report.created_by_name],
     ['Alcance',`${report.snapshot.cases.length} casos y ${report.snapshot.links.length} vínculos del conjunto identificado`],
+    ['Intervenciones registradas',report.snapshot.cases.reduce((sum,item)=>sum+(item.transcript?.length??0),0)],
     ['Carácter','Documento de prueba con casos ficticios. Requiere revisión humana antes de cualquier remisión.'],
   ]);
 
@@ -208,7 +215,27 @@ export async function renderReportPdf(report) {
     }
   }
 
-  section(5,'Vínculos y fundamentos',155);
+  section(5,'Conversaciones registradas por caso',155);
+  for(const item of report.snapshot.cases) {
+    const title=`Caso ${caseRef(item.id)} - ${item.title}`;
+    if(!item.transcript) {
+      subsection(title);
+      paragraph('Esta versión se guardó antes de incorporar las conversaciones al informe. No se agregan datos posteriores a una versión cerrada.');
+    } else if(!item.transcript.length) {
+      subsection(title);
+      paragraph('No hay intervenciones de conversación guardadas para este caso.');
+    } else {
+      table([
+        {label:'Orden / tiempo',width:0.17},{label:'Interlocutor',width:0.20},
+        {label:'Intervención registrada',width:0.53},{label:'Señal',width:0.10},
+      ],item.transcript.map(line=>[
+        `${line.idx+1} / ${timeOffset(line.t_offset)}`,speaker(line.speaker),line.text,
+        line.flagged?'Sí':'No',
+      ]),title);
+    }
+  }
+
+  section(6,'Vínculos y fundamentos',155);
   table([{label:'Casos relacionados',width:0.29},{label:'Estado',width:0.18},
     {label:'Puntuación',width:0.18},{label:'Fundamento registrado',width:0.35}],
   report.snapshot.links.map(link=>[
@@ -237,26 +264,26 @@ export async function renderReportPdf(report) {
         ['Fecha de comparación',date(comparison.generated_at)],
         ['Limitaciones',Array.isArray(comparison.limitations)?comparison.limitations.join('; '):null],
       ],'Comparación Maritime');
-    } else paragraph('No consta una comparación Maritime completa al guardar esta versión.',{color:muted});
+    } else paragraph('No consta una comparación Maritime completa al guardar esta versión.');
   }
 
-  section(6,'Limitaciones y trazabilidad',190);
-  paragraph('Los identificadores y coincidencias son indicios sujetos a verificación independiente. Este documento no identifica a un presunto autor, no determina culpabilidad y no equivale a una denuncia presentada ante la autoridad. No incluye audio ni transcripciones íntegras.');
+  section(7,'Limitaciones y trazabilidad',190);
+  paragraph('Los identificadores y coincidencias son indicios sujetos a verificación independiente. Este documento no identifica a un presunto autor, no determina culpabilidad y no equivale a una denuncia presentada ante la autoridad. Las conversaciones reproducen únicamente los segmentos guardados; no se adjunta audio.');
   twoColumn([
     ['ID de versión',report.id],['Serie',report.series_id],
     ['Captura de evidencia',date(report.snapshot.captured_at)],
     ['SHA-256 del contenido',report.content_sha256],
   ]);
-  paragraph('El hash corresponde al contenido de la versión guardada en la web, no a los bytes del archivo PDF.',{size:8,color:muted});
+  paragraph('El hash corresponde al contenido de la versión guardada en la web, no a los bytes del archivo PDF.',{size:8});
 
   const pages=pdf.getPages();
   for(const [index,current] of pages.entries()) {
-    current.drawText('TISKZ  |  INFORME PRELIMINAR DE ANÁLISIS',{x:margin,y:height-34,size:8.5,font:bold,color:ink});
-    current.drawText('CASOS FICTICIOS - PRUEBA',{x:width-margin-132,y:height-34,size:7.5,font:bold,color:muted});
+    current.drawText('PHONEWARD  |  INFORME PRELIMINAR DE ANÁLISIS',{x:margin,y:height-34,size:8.5,font:bold,color:ink});
+    current.drawText('CASOS FICTICIOS - PRUEBA',{x:width-margin-132,y:height-34,size:7.5,font:bold,color:ink});
     current.drawLine({start:{x:margin,y:height-44},end:{x:width-margin,y:height-44},thickness:0.7,color:rule});
     current.drawLine({start:{x:margin,y:52},end:{x:width-margin,y:52},thickness:0.6,color:rule});
-    current.drawText('TISKZ | documento preliminar | casos ficticios',{x:margin,y:36,size:7.5,font:regular,color:muted});
-    current.drawText(`Página ${index+1} de ${pages.length}`,{x:width-margin-70,y:36,size:7.5,font:regular,color:muted});
+    current.drawText('PhoneWard | documento preliminar | casos ficticios',{x:margin,y:36,size:7.5,font:regular,color:ink});
+    current.drawText(`Página ${index+1} de ${pages.length}`,{x:width-margin-70,y:36,size:7.5,font:regular,color:ink});
   }
   return pdf.save();
 }

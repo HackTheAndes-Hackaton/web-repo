@@ -67,8 +67,8 @@ function SheetRow({ label, children }: { label: string; children: ReactNode }) {
 }
 
 /**
- * Lo que la PNP pidió para actuar rápido: número, fecha, cuentas o números de Yape,
- * montos, a quién suplantó y las frases clave. Se imprime con "Imprimir / PDF".
+ * Ficha breve del caso para consulta en el panel. El informe descargable se
+ * prepara por conjunto en /panel/informes.
  */
 export function ComplaintSheet({
   caller,

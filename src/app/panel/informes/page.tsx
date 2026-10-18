@@ -30,7 +30,7 @@ export default async function ReportsPage({searchParams}:{searchParams:Promise<{
     </p>}
     <Card title="Preparar informe" className="mb-6">
       <p className="text-sm text-fg-2">Prepara una versión para cada conjunto identificado. El informe fija todos sus casos, coincidencias y decisiones actuales para revisión humana.</p>
-      {groups.length?<div className="mt-4 space-y-4">{groups.map((group,index)=><div key={group.anchor} className="rounded-2xl border border-line p-4">
+      {groups.length?<div className="mt-4 space-y-4">{groups.map((group,index)=><div key={group.anchor} id={group.anchor} className="scroll-mt-6 rounded-2xl border border-line p-4">
         <h2 className="text-sm font-semibold">Grupo {index+1} · {group.incidentIds.length} casos · {group.links.length} vínculos</h2>
         <ReportSelectionForm cases={group.incidentIds.map(id=>({id,title:byId.get(id)!.title}))}
           links={group.links.map(link=>({id:link.id,a:link.incident_a,b:link.incident_b,title:link.reasons.map(reason=>reason.detail).join(' · ')||'Conexión propuesta'}))}

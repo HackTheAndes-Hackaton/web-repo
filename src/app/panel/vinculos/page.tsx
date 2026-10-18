@@ -223,6 +223,11 @@ function GroupCard({ group, cases, suspects }: { group: LinkGroup<LinkView>; cas
         <span className="rounded-full bg-accent-wash px-3 py-1 text-xs font-semibold text-accent-ink">Red para investigar</span>
       </div>
       <div className="mt-4"><GroupRecord members={members} suspects={suspects} /></div>
+      {group.links.every((link) => link.explanation_eligible) && <Link
+        href={`/panel/informes#${group.anchor}`}
+        className="mt-4 inline-flex rounded-full border border-line px-4 py-2 text-sm font-semibold hover:bg-surface-2">
+        Preparar informe PDF de todo el grupo
+      </Link>}
       {big ? (
         <ul className="mt-5 grid gap-x-6 gap-y-0.5 md:grid-cols-2">
           {members.map((incident) => {
