@@ -3,7 +3,7 @@ import { IncidentReport, type ReportTab } from "@/components/IncidentReport";
 import { requireAnalyst } from "@/lib/panel";
 import { getIncidentDetail } from "@/lib/repo";
 
-const TABS: ReportTab[] = ["cronologia", "datos", "ia", "revision"];
+const TABS: ReportTab[] = ["ia", "datos"];
 
 export default async function CaseDetail({ params, searchParams }: PageProps<"/panel/casos/[id]">) {
   const { session } = await requireAnalyst();
@@ -15,7 +15,7 @@ export default async function CaseDetail({ params, searchParams }: PageProps<"/p
   return (
     <IncidentReport
       detail={detail}
-      tab={TABS.includes(tab as ReportTab) ? (tab as ReportTab) : "cronologia"}
+      tab={TABS.includes(tab as ReportTab) ? (tab as ReportTab) : "ia"}
     />
   );
 }

@@ -1,148 +1,76 @@
-import { AudioLines, Sparkles, TriangleAlert } from "lucide-react";
-import { fmtOffset, pct } from "@/lib/format";
+import { TriangleAlert } from "lucide-react";
+import { pct } from "@/lib/format";
 import {
   ENTITY_LABELS,
   PROVENANCE_LABELS,
   SIGNAL_LABELS,
   type Entity,
   type RiskLevel,
-  type Segment,
   type Signal,
 } from "@/lib/types";
-import { Empty, RiskBadge } from "./ui";
+import { Empty, IconBubble } from "./ui";
 
-const METER = {
-  bajo: { fill: "bg-good", track: "bg-good-wash" },
-  medio: { fill: "bg-warning", track: "bg-warning-wash" },
-  alto: { fill: "bg-critical", track: "bg-critical-wash" },
+const METER: Record<RiskLevel, { headline: string; ink: string; color: string }> = {
+  bajo: { headline: "Riesgo bajo", ink: "text-good-ink", color: "var(--good)" },
+  medio: { headline: "Verifica antes de actuar", ink: "text-warning-ink", color: "var(--warning)" },
+  alto: { headline: "Posible estafa", ink: "text-critical", color: "var(--critical)" },
 };
 
+/** Barra de riesgo con el mismo diseño que la pantalla de llamada de la app. */
 export function RiskMeter({ score, level }: { score: number; level: RiskLevel }) {
   const m = METER[level];
   return (
     <div>
-      <div className="flex items-end justify-between gap-3">
-        <div>
-          <div className="text-xs text-muted">Riesgo estimado</div>
-          <div className="text-5xl font-semibold leading-none">{score}</div>
-        </div>
-        <RiskBadge level={level} />
+      <div className="text-[11px] font-semibold uppercase tracking-widest text-muted">Riesgo de estafa</div>
+      <div className="mt-1 flex items-end justify-between gap-3">
+        <div className={`text-xl font-bold ${m.ink}`}>{m.headline}</div>
+        <div className={`tabular text-5xl font-bold leading-none ${m.ink}`}>{score}%</div>
       </div>
       <div
-        className={`mt-3 h-2.5 w-full overflow-hidden rounded-full ${m.track}`}
+        className="mt-4 h-3 w-full overflow-hidden rounded-full bg-surface-2"
         role="meter"
         aria-valuemin={0}
         aria-valuemax={100}
         aria-valuenow={score}
         aria-label="Riesgo estimado"
       >
-        <div className={`h-full rounded-full ${m.fill} transition-all duration-500`} style={{ width: `${score}%` }} />
+        <div
+          className="h-full rounded-full transition-all duration-500"
+          style={{
+            width: `${score}%`,
+            background: `linear-gradient(90deg, color-mix(in srgb, ${m.color} 55%, transparent), ${m.color})`,
+          }}
+        />
       </div>
-      <p className="mt-2 text-xs text-muted">
+      <p className="mt-3 text-xs text-muted">
         Estimación a partir de señales observadas. Una señal aislada no confirma un engaño.
       </p>
     </div>
   );
 }
 
-export function SignalList({
-  signals,
-  segments,
-  segmentHref = (id) => `#seg-${id}`,
-}: {
-  signals: Signal[];
-  segments: Segment[];
-  segmentHref?: (segmentId: string) => string;
-}) {
+/** Señales que infirió la IA, con su explicación. Sin citas: el panel no guarda la transcripción. */
+export function SignalList({ signals }: { signals: Signal[] }) {
   if (!signals.length) return <Empty>Sin señales de riesgo por ahora.</Empty>;
-  const segIdx = new Map(segments.map((s) => [s.id, s]));
   return (
     <ul className="space-y-3">
-      {[...signals].reverse().map((s) => {
-        const seg = s.segment_id ? segIdx.get(s.segment_id) : undefined;
-        return (
-          <li key={s.id} className="rounded-lg border border-line bg-surface p-3">
+      {[...signals].reverse().map((s) => (
+        <li key={s.id} className="flex gap-3 rounded-2xl bg-surface p-4 shadow-soft">
+          <IconBubble tone="warning">
+            <TriangleAlert size={17} aria-hidden />
+          </IconBubble>
+          <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <span className="text-sm font-semibold">{SIGNAL_LABELS[s.type] ?? s.type}</span>
+              <span className="text-[15px] font-semibold">{SIGNAL_LABELS[s.type] ?? s.type}</span>
               <span className="text-xs text-muted">
                 {s.source === "ia" ? "IA" : "Reglas"} · confianza {pct(s.confidence)}
               </span>
             </div>
-            <blockquote className="mt-2 border-l-2 border-line-strong pl-3 text-sm italic text-fg-2">
-              “{s.evidence}”
-            </blockquote>
-            <p className="mt-2 text-sm text-fg-2">{s.explanation}</p>
-            {seg && (
-              <a href={segmentHref(seg.id)} className="mt-2 inline-block text-xs font-medium text-accent-ink hover:underline">
-                Ver fragmento {fmtOffset(seg.t_offset)} →
-              </a>
-            )}
-          </li>
-        );
-      })}
+            <p className="mt-1 text-sm text-fg-2">{s.explanation}</p>
+          </div>
+        </li>
+      ))}
     </ul>
-  );
-}
-
-/**
- * Cronología: cada fragmento transcrito (dato observado) con las señales que la
- * IA infirió de él justo debajo, marcadas como inferencia.
- */
-export function Timeline({ segments, signals }: { segments: Segment[]; signals: Signal[] }) {
-  if (!segments.length) return <Empty>Aún no hay fragmentos transcritos.</Empty>;
-  const bySegment = new Map<string, Signal[]>();
-  for (const s of signals) {
-    if (!s.segment_id) continue;
-    bySegment.set(s.segment_id, [...(bySegment.get(s.segment_id) ?? []), s]);
-  }
-  return (
-    <ol className="relative">
-      {segments.map((seg, i) => {
-        const flags = bySegment.get(seg.id) ?? [];
-        const flagged = flags.length > 0;
-        const last = i === segments.length - 1;
-        return (
-          <li key={seg.id} id={`seg-${seg.id}`} className="relative grid scroll-mt-24 grid-cols-[3rem_1.5rem_1fr] gap-x-2">
-            <span className="tabular pt-2 text-right text-xs text-muted">{fmtOffset(seg.t_offset)}</span>
-            <span className="relative flex justify-center">
-              {!last && <span className="absolute top-7 bottom-0 w-px bg-line" aria-hidden />}
-              <span
-                className={`relative mt-1.5 grid h-6 w-6 place-items-center rounded-full border ${
-                  flagged ? "border-warning bg-warning-wash text-warning-ink" : "border-line bg-surface text-muted"
-                }`}
-              >
-                {flagged ? <TriangleAlert size={12} aria-hidden /> : <AudioLines size={12} aria-hidden />}
-              </span>
-            </span>
-            <div className={`min-w-0 ${last ? "" : "pb-5"}`}>
-              <div className="rounded-lg border border-line bg-surface px-3 py-2">
-                {seg.speaker && (
-                  <div className="mb-0.5 text-[11px] font-medium uppercase tracking-wider text-muted">{seg.speaker}</div>
-                )}
-                <p className={`text-sm ${seg.text.startsWith("(") ? "italic text-muted" : "text-fg"}`}>{seg.text}</p>
-              </div>
-              {flags.length > 0 && (
-                <ul className="mt-2 space-y-1.5">
-                  {flags.map((f) => (
-                    <li key={f.id} className="flex gap-2 text-xs">
-                      <Sparkles size={13} className="mt-0.5 shrink-0 text-warning-ink" aria-hidden />
-                      <span className="text-fg-2">
-                        <span className="font-medium text-fg">{SIGNAL_LABELS[f.type] ?? f.type}</span>
-                        <span className="text-muted">
-                          {" "}
-                          · {f.source === "ia" ? "IA" : "Reglas"} {pct(f.confidence)}
-                        </span>
-                        <span className="block">{f.explanation}</span>
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-          </li>
-        );
-      })}
-    </ol>
   );
 }
 
@@ -151,7 +79,7 @@ export function EntityTable({ entities }: { entities: Entity[] }) {
   return (
     <div className="overflow-x-auto">
       <table className="w-full text-left text-sm">
-        <thead className="text-xs text-muted">
+        <thead className="text-[11px] uppercase tracking-wider text-muted">
           <tr className="border-b border-line">
             <th className="py-2 pr-3 font-medium">Tipo</th>
             <th className="py-2 pr-3 font-medium">Valor</th>
@@ -162,7 +90,7 @@ export function EntityTable({ entities }: { entities: Entity[] }) {
           {entities.map((e) => (
             <tr key={e.id} className="border-b border-line last:border-0">
               <td className="py-2 pr-3 text-fg-2">{ENTITY_LABELS[e.kind] ?? e.kind}</td>
-              <td className="tabular py-2 pr-3 font-medium">{e.value}</td>
+              <td className="tabular py-2.5 pr-3 font-semibold">{e.value}</td>
               <td className="py-2 text-fg-2">{PROVENANCE_LABELS[e.provenance] ?? e.provenance}</td>
             </tr>
           ))}

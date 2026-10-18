@@ -18,7 +18,7 @@ export function CreateKeyForm() {
           maxLength={80}
           placeholder="Nombre del servicio (p. ej. Servidor de llamadas)"
           aria-label="Nombre de la clave"
-          className="min-w-0 flex-1 rounded-lg border border-line-strong bg-surface px-3 py-2 text-sm outline-none focus:border-accent"
+          className="min-w-0 flex-1 rounded-full border border-line bg-surface px-4 py-2 text-sm outline-none focus:ring-4 focus:ring-accent/15 focus:border-accent"
         />
         <button className={buttonCls.primary} disabled={pending}>
           <KeyRound size={15} aria-hidden />

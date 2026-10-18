@@ -41,15 +41,15 @@ export function LiveRefresh({ mode, pollMs = 15000 }: { mode: "sse" | "poll"; po
 
   if (mode === "poll") {
     return (
-      <span className="inline-flex items-center gap-1.5 text-xs text-muted" title="El panel se actualiza periódicamente">
-        <span className="h-2 w-2 rounded-full bg-good" aria-hidden />
+      <span className="inline-flex items-center gap-1.5 text-xs font-medium text-white/75" title="El panel se actualiza periódicamente">
+        <span className="h-2 w-2 animate-pulse rounded-full bg-good" aria-hidden />
         Cada {Math.round(pollMs / 1000)} s
       </span>
     );
   }
   return (
-    <span className="inline-flex items-center gap-1.5 text-xs text-muted" title="Actualización en vivo">
-      <span className={`h-2 w-2 rounded-full ${connected ? "bg-good" : "bg-line-strong"}`} aria-hidden />
+    <span className="inline-flex items-center gap-1.5 text-xs font-medium text-white/75" title="Actualización en vivo">
+      <span className={`h-2 w-2 rounded-full ${connected ? "animate-pulse bg-good" : "bg-white/30"}`} aria-hidden />
       {connected ? "En vivo" : "Reconectando…"}
     </span>
   );

@@ -2,8 +2,8 @@
 
 Este proyecto tiene dos partes:
 
-- **Panel web (`/panel`)**: muestra la información para la organización analista. Incluye reportes, transcripciones,
-  señales de riesgo, gráficas y vínculos entre casos.
+- **Panel web (`/panel`)**: muestra la información para la organización analista. Incluye reportes, señales
+  de riesgo, gráficas y vínculos entre casos. No guarda ni muestra transcripciones.
 - **API gateway (`/api/v1`)**: REST con una entrada por entidad. Por aquí envían sus datos el **servidor de llamadas**
   y el **servicio de IA**. Se autentica con API key.
 
@@ -71,7 +71,6 @@ públicas.
 | Organizaciones | `/organizations` | — |
 | Personas | `/users` | — |
 | Incidentes | `/incidents` | — |
-| Transcripción | `/segments` | `/incidents/{id}/segments` |
 | Señales de riesgo | `/signals` | `/incidents/{id}/signals` |
 | Datos observados | `/entities` | `/incidents/{id}/entities` |
 | Muestras de voz | `/voice-samples` | `/incidents/{id}/voice-samples` |
@@ -85,7 +84,7 @@ Cada recurso tiene:
   `?status=`, `?risk_level=`, `?external_id=`…) y `?since` / `?until` en formato ISO 8601.
 - `POST /{recurso}`: un objeto, o un arreglo de hasta 500 para crear en lote.
 - `GET` / `PATCH` / `DELETE /{recurso}/{id}`.
-- `GET /incidents/{id}?include=segments,signals,entities,actions,notes,voice-samples,links`: el incidente completo en
+- `GET /incidents/{id}?include=signals,entities,actions,notes,voice-samples,links`: el incidente completo en
   una sola llamada.
 - `POST /links/recompute` con `{ "incident_id" }` o `{ "org_id" }`: recalcula los vínculos.
 
@@ -106,20 +105,18 @@ Cada recurso tiene:
 ```bash
 # 1. El servidor de llamadas abre el incidente (external_id = su id de llamada)
 POST /api/v1/incidents            {"external_id":"llamada-8841","org_id":"org_uav","channel":"llamada"}
-# 2. Envía la transcripción conforme avanza (idx se asigna solo)
-POST /api/v1/incidents/{id}/segments   [{"speaker":"interlocutor","t_offset":4,"text":"..."}]
-# 3. La IA agrega señales, datos y voz
-POST /api/v1/incidents/{id}/signals    [{"type":"dinero","evidence":"...","explanation":"...","confidence":0.9}]
+# 2. La IA agrega señales, datos y voz (sin citas de la conversación)
+POST /api/v1/incidents/{id}/signals    [{"type":"dinero","explanation":"...","confidence":0.9}]
 POST /api/v1/incidents/{id}/entities   [{"kind":"telefono","value":"55 2841 7730","provenance":"mostrado"}]
 POST /api/v1/incidents/{id}/voice-samples {"embedding":[...192 números...]}
-# 4. Se cierra con el riesgo final (risk_level se deriva de risk_score si no se manda)
+# 3. Se cierra con el riesgo final (risk_level se deriva de risk_score si no se manda)
 PATCH /api/v1/incidents/{id}      {"status":"finalizado","ended_at":"...","risk_score":82,"summary":"..."}
 ```
 
 Detalles útiles:
 
 - Cada escritura actualiza el panel en vivo y recalcula, después de responder, los vínculos del incidente: similitud
-  de voz con pgvector, datos repetidos y parecido del guion.
+  de voz con pgvector, datos repetidos y coincidencia en los tipos de señal.
 - Un dato observado repetido en el mismo incidente no se duplica: la API devuelve el que ya existía con `200`.
 - Un incidente solo aparece en el panel de la organización indicada en su `org_id`.
 

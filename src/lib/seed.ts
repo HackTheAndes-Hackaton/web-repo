@@ -38,7 +38,12 @@ interface SeedIncident {
   minutes: number;
   title: string;
   channel: string;
-  segments: string[];
+  /** Clasificación de la IA y número que llamó (ficticio). */
+  scamType: string | null;
+  impersonating: string | null;
+  caller: string;
+  /** Frases ficticias: solo sirven para derivar señales y datos; no se guardan. */
+  lines: string[];
   shown?: { kind: EntityKind; value: string; normalized: string }[];
   summary: string;
   recommendation: string;
@@ -54,8 +59,11 @@ const INCIDENTS: SeedIncident[] = [
     hour: 11,
     minutes: 6,
     title: "Falso familiar detenido pide depósito",
+    scamType: "familiar_falso",
+    impersonating: "Sobrino detenido",
+    caller: "+525528417730",
     channel: "llamada",
-    segments: [
+    lines: [
       "Bueno, ¿tía? Soy tu sobrino, cambié de número. Tuve un problema, me detuvieron en la carretera.",
       "El licenciado Ramírez dice que si no pagas la multa ahora mismo me pasan al Ministerio Público.",
       "Necesito que deposites 15 mil pesos a la cuenta 4152 3138 0011 2233. No le digas a mi mamá, por favor.",
@@ -75,8 +83,11 @@ const INCIDENTS: SeedIncident[] = [
     hour: 18,
     minutes: 4,
     title: "Supuesto secuestro con exigencia de pago",
+    scamType: "secuestro_virtual",
+    impersonating: "Supuestos captores",
+    caller: "+523319074521",
     channel: "llamada",
-    segments: [
+    lines: [
       "Escúchame bien, tenemos a tu hijo. Si no pagas le va a ir mal.",
       "Quiero 30 mil pesos en la cuenta 4152 3138 0011 2233, en menos de 30 minutos.",
       "No llames a la policía y no cuelgues, sabemos dónde vives.",
@@ -95,8 +106,11 @@ const INCIDENTS: SeedIncident[] = [
     hour: 13,
     minutes: 3,
     title: "Posible suplantación bancaria para obtener NIP",
+    scamType: "suplantacion_bancaria",
+    impersonating: "Banorte",
+    caller: "+525590123344",
     channel: "llamada",
-    segments: [
+    lines: [
       "Buenas tardes, le hablamos del banco Banorte, su tarjeta fue clonada.",
       "Necesito su NIP y el número de su tarjeta para bloquearla, rápido, antes de que le roben más.",
     ],
@@ -112,8 +126,11 @@ const INCIDENTS: SeedIncident[] = [
     hour: 10,
     minutes: 5,
     title: "Falso departamento de fraudes pide código",
+    scamType: "suplantacion_bancaria",
+    impersonating: "BBVA (fraudes)",
+    caller: "+525590123344",
     channel: "llamada",
-    segments: [
+    lines: [
       "Le habla del departamento de fraudes de BBVA, detectamos un cargo no reconocido en su tarjeta.",
       "Para cancelarlo necesito el código de verificación que le llegó por mensaje y la fecha de vencimiento.",
       "Es urgente, en 5 minutos se procesa el cargo.",
@@ -131,8 +148,11 @@ const INCIDENTS: SeedIncident[] = [
     hour: 20,
     minutes: 3,
     title: "Préstamo entre hermanas (conversación legítima)",
+    scamType: null,
+    impersonating: null,
+    caller: "+525547781290",
     channel: "llamada",
-    segments: [
+    lines: [
       "Hola, soy yo, Carla. Oye, ¿me prestas 2 mil pesos para la colegiatura? Te los pago el viernes.",
       "Si quieres lo platicamos en la comida del domingo con mamá, no te preocupes.",
     ],
@@ -148,8 +168,11 @@ const INCIDENTS: SeedIncident[] = [
     hour: 12,
     minutes: 4,
     title: "Supuesto premio con pago de envío",
+    scamType: "premio_falso",
+    impersonating: "Lic. Ramírez (sorteo)",
+    caller: "+528112345678",
     channel: "llamada",
-    segments: [
+    lines: [
       "Felicidades, habla el licenciado Ramírez, usted ganó una camioneta en el sorteo.",
       "Solo tiene que pagar el envío, 4 mil 500 pesos en OXXO, hoy mismo, y no le diga a nadie hasta recibirla.",
     ],
@@ -165,8 +188,11 @@ const INCIDENTS: SeedIncident[] = [
     hour: 9,
     minutes: 4,
     title: "Supuesto adeudo con el SAT",
+    scamType: "autoridad_falsa",
+    impersonating: "SAT",
+    caller: "+525588001122",
     channel: "llamada",
-    segments: [
+    lines: [
       "Le hablamos del SAT, tiene un adeudo y una orden de embargo para hoy.",
       "Para detenerla debe pagar 8 mil pesos de inmediato a la cuenta 0121 8000 4455 6677 88.",
     ],
@@ -182,8 +208,11 @@ const INCIDENTS: SeedIncident[] = [
     hour: 17,
     minutes: 2,
     title: "Mensaje de 'cambié de número' con transferencia",
+    scamType: "familiar_falso",
+    impersonating: "Hijo o hija",
+    caller: "+525561239876",
     channel: "llamada",
-    segments: [
+    lines: [
       "Hola mamá, cambié de número, guárdalo. ¿Me puedes hacer una transferencia urgente? Luego te explico.",
     ],
     summary: "Alguien dice ser un familiar con número nuevo y pide una transferencia urgente.",
@@ -209,7 +238,6 @@ export async function seedDemoData(sql: Db) {
   ])}`;
 
   const incidents: Record<string, unknown>[] = [];
-  const segments: Record<string, unknown>[] = [];
   const signals: Record<string, unknown>[] = [];
   const entities: Record<string, unknown>[] = [];
   const actions: Record<string, unknown>[] = [];
@@ -229,9 +257,9 @@ export async function seedDemoData(sql: Db) {
     const end = new Date(start.getTime() + s.minutes * 60_000);
     const at = (sec: number) => new Date(start.getTime() + sec * 1000).toISOString();
 
-    const segRows = s.segments.map((text, i) => ({ id: newId("seg"), text, t: i * 20 + 4 }));
+    const lineRows = s.lines.map((text, i) => ({ text, t: i * 20 + 4 }));
     const types = new Set<SignalType>();
-    for (const seg of segRows) for (const sig of detectSignals(seg.text)) types.add(sig.type);
+    for (const line of lineRows) for (const sig of detectSignals(line.text)) types.add(sig.type);
     const score = scoreFromSignalTypes(types);
 
     incidents.push({
@@ -251,50 +279,51 @@ export async function seedDemoData(sql: Db) {
       analyst_status: s.analystStatus ?? "nuevo",
       simulated: true,
       verdict: score >= 65 ? "scam" : score >= 35 ? "suspicious" : "safe",
+      scam_type: s.scamType,
+      impersonating: s.impersonating,
+      caller_e164: s.caller,
+      direction: "incoming",
       analysis_status: "completed",
       consent_snapshot: sql.json({ voice_storage: true, voice_reference: true }),
     });
     action(id, "captura_iniciada", "Captura y análisis autorizados por el usuario.", at(0));
 
     const seen = new Set<string>();
-    segRows.forEach((seg, i) => {
-      segments.push({ id: seg.id, incident_id: id, idx: i, t_offset: seg.t, speaker: "caller", text: seg.text, created_at: at(seg.t) });
-      for (const sig of detectSignals(seg.text)) {
+    for (const line of lineRows) {
+      for (const sig of detectSignals(line.text)) {
         signals.push({
           id: newId("sig"),
           incident_id: id,
-          segment_id: seg.id,
           type: sig.type,
-          evidence: sig.evidence,
+          evidence: "",
           explanation: sig.explanation,
           confidence: sig.confidence,
           source: "reglas",
-          created_at: at(seg.t + 2),
+          created_at: at(line.t + 2),
         });
       }
-      for (const e of extractEntities(seg.text)) {
+      for (const e of extractEntities(line.text)) {
         const key = `${e.kind}:${e.normalized}`;
         if (seen.has(key)) continue;
         seen.add(key);
         entities.push({
           id: newId("ent"),
           incident_id: id,
-          segment_id: seg.id,
           kind: e.kind,
           value: e.value,
           normalized: e.normalized,
           provenance: "mencionado",
         });
       }
-    });
+    }
     for (const e of s.shown ?? []) {
-      entities.push({ id: newId("ent"), incident_id: id, segment_id: null, ...e, provenance: "mostrado" });
+      entities.push({ id: newId("ent"), incident_id: id, ...e, provenance: "mostrado" });
     }
     voices.push({
       id: newId("voz"),
       incident_id: id,
       embedding: toVector(voiceOf(s.speaker)),
-      duration_s: 18 + s.segments.length * 6,
+      duration_s: 18 + s.lines.length * 6,
       created_at: at(30),
     });
 
@@ -311,7 +340,6 @@ export async function seedDemoData(sql: Db) {
   }
 
   await sql`insert into incidents ${sql(incidents)}`;
-  await sql`insert into segments ${sql(segments)}`;
   await sql`insert into signals ${sql(signals)}`;
   await sql`insert into entities ${sql(entities)}`;
   await sql`insert into actions ${sql(actions)}`;

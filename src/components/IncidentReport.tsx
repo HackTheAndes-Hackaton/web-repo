@@ -1,23 +1,15 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
-import { Check, Clock, FolderOpen, Hash, Mic, ShieldAlert } from "lucide-react";
-import { addNoteAction, reviewLink, setAnalystStatus } from "@/app/actions";
-import { fmtDateTime, fmtDuration, pct } from "@/lib/format";
+import { Clock, FolderOpen, Hash, Mic, PhoneIncoming, PhoneOutgoing, ShieldAlert, UserRound } from "lucide-react";
+import { fmtDateTime, fmtDuration, fmtPhone, pct } from "@/lib/format";
 import { caseCode, type IncidentDetail } from "@/lib/repo";
-import { channelLabel, type AnalystStatus } from "@/lib/types";
-import { EntityTable, RiskMeter, SignalList, Timeline } from "./incident-parts";
-import { LinkReasons, LinkStatusTag } from "./links-ui";
+import { channelLabel, scamTypeLabel } from "@/lib/types";
+import { EntityTable, RiskMeter, SignalList } from "./incident-parts";
+import { LinkReasons } from "./links-ui";
 import { PrintButton } from "./PrintButton";
-import { buttonCls, Card, Empty, PageHeader, Pill, RiskBadge, Tag } from "./ui";
+import { CallerNumber, Card, IconBubble, PageHeader, Pill, RiskBadge, ScamTypeChip, VerdictBadge } from "./ui";
 
-const NOTE_KIND = { correccion: "Corrección", observacion: "Observación", conclusion: "Conclusión revisada" };
-const STEPS: { value: AnalystStatus; label: string }[] = [
-  { value: "nuevo", label: "Nuevo" },
-  { value: "en_revision", label: "En revisión" },
-  { value: "cerrado", label: "Cerrado" },
-];
-
-export type ReportTab = "cronologia" | "datos" | "ia" | "revision";
+export type ReportTab = "ia" | "datos";
 
 function Property({ label, children }: { label: string; children: ReactNode }) {
   return (
@@ -28,57 +20,49 @@ function Property({ label, children }: { label: string; children: ReactNode }) {
   );
 }
 
-function SideSection({ title, children }: { title: string; children: ReactNode }) {
+function SideSection({ title, children }: { title?: string; children: ReactNode }) {
   return (
     <section className="border-t border-line py-4 first:border-t-0 first:pt-0">
-      <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted">{title}</h3>
+      {title && <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted">{title}</h3>}
       {children}
     </section>
   );
 }
 
-/** Barra de estados del caso, al estilo de los gestores de incidentes. */
-function StatusStepper({ incidentId, current }: { incidentId: string; current: AnalystStatus }) {
-  const idx = STEPS.findIndex((s) => s.value === current);
+/** Dato clave de la llamada, en una ficha con ícono. */
+function Fact({
+  icon,
+  tone,
+  label,
+  children,
+}: {
+  icon: ReactNode;
+  tone: "accent" | "critical" | "warning" | "good";
+  label: string;
+  children: ReactNode;
+}) {
   return (
-    <ol className="flex flex-wrap items-center rounded-lg border border-line bg-surface p-0.5 text-xs">
-      {STEPS.map((s, i) => {
-        const done = i < idx;
-        const active = i === idx;
-        return (
-          <li key={s.value} className="flex items-center">
-            {i > 0 && <span className="mx-0.5 text-muted" aria-hidden>›</span>}
-            <form action={setAnalystStatus.bind(null, incidentId, s.value)}>
-              <button
-                aria-current={active ? "step" : undefined}
-                className={`inline-flex items-center gap-1 rounded-md px-2.5 py-1 ${
-                  active
-                    ? "bg-accent-wash font-medium text-accent-ink"
-                    : done
-                      ? "text-fg-2 hover:bg-surface-2"
-                      : "text-muted hover:bg-surface-2"
-                }`}
-              >
-                {done && <Check size={12} aria-hidden />}
-                {s.label}
-              </button>
-            </form>
-          </li>
-        );
-      })}
-    </ol>
+    <div className="flex items-start gap-3 rounded-[20px] bg-surface-2 p-4">
+      <IconBubble tone={tone}>{icon}</IconBubble>
+      <div className="min-w-0">
+        <div className="text-xs text-muted">{label}</div>
+        <div className="mt-0.5 text-[15px] font-semibold leading-snug">{children}</div>
+      </div>
+    </div>
   );
 }
 
-export function IncidentReport({ detail, tab = "cronologia" }: { detail: IncidentDetail; tab?: ReportTab }) {
-  const { incident, segments, signals, entities, actions, notes, voiceSamples, owner, sharedOrg, links } = detail;
-  const here = `/panel/casos/${incident.id}`;
+const DIRECTION = { incoming: "Llamada entrante", outgoing: "Llamada saliente" };
 
-  const tabs: { id: ReportTab; label: string; count?: number }[] = [
-    { id: "cronologia", label: "Cronología", count: segments.length },
+export function IncidentReport({ detail, tab = "ia" }: { detail: IncidentDetail; tab?: ReportTab }) {
+  const { incident, signals, entities, actions, voiceSamples, owner, sharedOrg, links } = detail;
+  const here = `/panel/casos/${incident.id}`;
+  const number = fmtPhone(incident.caller_e164 ?? incident.caller_number_raw);
+  const reasons = Array.isArray(incident.risk_reasons) ? incident.risk_reasons.filter((r) => typeof r === "string") : [];
+
+  const tabs: { id: ReportTab; label: string; count: number }[] = [
+    { id: "ia", label: "Señales de la IA", count: signals.length },
     { id: "datos", label: "Datos observados", count: entities.length },
-    { id: "ia", label: "Inferencias de la IA", count: signals.length },
-    { id: "revision", label: "Revisión humana", count: notes.length },
   ];
 
   return (
@@ -91,15 +75,15 @@ export function IncidentReport({ detail, tab = "cronologia" }: { detail: Inciden
         title={
           <span className="flex items-start gap-3">
             <span
-              className={`mt-0.5 grid h-9 w-9 shrink-0 place-items-center rounded-lg ${
+              className={`mt-0.5 grid h-10 w-10 shrink-0 place-items-center rounded-2xl ${
                 incident.risk_level === "alto"
-                  ? "bg-critical-wash text-critical-ink"
+                  ? "bg-critical-wash text-critical"
                   : incident.risk_level === "medio"
                     ? "bg-warning-wash text-warning-ink"
                     : "bg-good-wash text-good-ink"
               }`}
             >
-              <ShieldAlert size={18} aria-hidden />
+              <ShieldAlert size={20} aria-hidden />
             </span>
             <span>
               <span className="tabular block text-xs font-medium text-muted">Caso {caseCode(incident.id)}</span>
@@ -109,13 +93,16 @@ export function IncidentReport({ detail, tab = "cronologia" }: { detail: Inciden
         }
         meta={
           <>
-            <StatusStepper incidentId={incident.id} current={incident.analyst_status} />
             <RiskBadge level={incident.risk_level} score={incident.risk_score} />
+            <VerdictBadge verdict={incident.verdict} />
+            <ScamTypeChip type={incident.scam_type} />
+            <Pill>
+              <CallerNumber incident={incident} />
+            </Pill>
             <Pill icon={<Clock size={12} aria-hidden />}>
               {incident.status === "en_curso" ? "En curso · " : ""}
               {fmtDuration(incident.started_at, incident.ended_at)}
             </Pill>
-            <Pill icon={<Mic size={12} aria-hidden />}>{channelLabel(incident.channel)}</Pill>
             {incident.external_id && <Pill icon={<Hash size={12} aria-hidden />}>{incident.external_id}</Pill>}
           </>
         }
@@ -123,49 +110,71 @@ export function IncidentReport({ detail, tab = "cronologia" }: { detail: Inciden
       />
 
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_20rem]">
-        <div className="min-w-0 space-y-5">
-          <section className="rounded-xl border border-line bg-surface p-4 sm:p-5">
-            {incident.summary && <p className="text-sm text-fg">{incident.summary}</p>}
+        <div className="min-w-0 space-y-6">
+          <section className="rounded-3xl bg-surface p-6 shadow-soft">
+            <h2 className="text-[17px] font-semibold">Resumen de la IA</h2>
+            <div className="mt-4 grid gap-3 sm:grid-cols-2">
+              <Fact icon={<ShieldAlert size={17} aria-hidden />} tone="critical" label="Tipo de estafa">
+                {scamTypeLabel(incident.scam_type) ?? <span className="font-normal text-muted">Sin clasificar</span>}
+              </Fact>
+              <Fact icon={<UserRound size={17} aria-hidden />} tone="warning" label="Se hace pasar por">
+                {incident.impersonating ?? <span className="font-normal text-muted">No identificado</span>}
+              </Fact>
+              <Fact
+                icon={incident.direction === "outgoing" ? <PhoneOutgoing size={17} aria-hidden /> : <PhoneIncoming size={17} aria-hidden />}
+                tone="accent"
+                label={incident.direction ? DIRECTION[incident.direction] : "Número que llamó"}
+              >
+                {number ? <span className="tabular">{number}</span> : <span className="font-normal text-muted">No registrado</span>}
+                {incident.caller_name && <span className="block text-sm font-normal text-fg-2">{incident.caller_name}</span>}
+              </Fact>
+              <Fact icon={<Mic size={17} aria-hidden />} tone="good" label="Canal">
+                {channelLabel(incident.channel)}
+              </Fact>
+            </div>
+            {incident.summary && <p className="mt-5 text-[15px] leading-relaxed text-fg">{incident.summary}</p>}
+            {reasons.length > 0 && (
+              <ul className="mt-3 flex flex-wrap gap-2">
+                {reasons.map((r) => (
+                  <li key={r} className="rounded-full bg-critical-wash px-3 py-1 text-xs font-medium text-critical-ink">
+                    {r}
+                  </li>
+                ))}
+              </ul>
+            )}
             {incident.recommendation && (
-              <p className="mt-3 rounded-lg bg-accent-wash px-3 py-2 text-sm text-accent-ink">
+              <p className="mt-4 rounded-2xl bg-accent-wash px-4 py-3 text-sm text-accent-ink">
                 <strong>Recomendación mostrada:</strong> {incident.recommendation}
               </p>
             )}
-            <p className="mt-3 text-xs text-muted">
-              El reporte separa datos observados, inferencias de la IA y conclusiones revisadas. Puede apoyar la
-              preparación de una denuncia; no es una denuncia presentada ni una atribución verificada de identidad.
+            <p className="mt-4 text-xs text-muted">
+              Todo lo de este reporte lo generó la IA. El número mostrado o un nombre pueden ser falsos: puede apoyar la
+              preparación de una denuncia, pero no es una denuncia ni una identificación verificada.
             </p>
           </section>
 
-          <nav className="no-print flex gap-1 overflow-x-auto border-b border-line" aria-label="Secciones del reporte">
+          <nav className="no-print flex gap-2 overflow-x-auto pb-1" aria-label="Secciones del reporte">
             {tabs.map((t) => (
               <Link
                 key={t.id}
                 href={`${here}?tab=${t.id}`}
                 scroll={false}
                 aria-current={tab === t.id ? "page" : undefined}
-                className={`-mb-px flex shrink-0 items-center gap-1.5 border-b-2 px-3 py-2 text-sm ${
+                className={`flex shrink-0 items-center gap-1.5 rounded-full px-4 py-2 text-sm ${
                   tab === t.id
-                    ? "border-accent font-medium text-fg"
-                    : "border-transparent text-fg-2 hover:text-fg"
+                    ? "bg-accent font-semibold text-white shadow-soft"
+                    : "bg-surface text-fg-2 shadow-soft hover:text-accent-ink"
                 }`}
               >
                 {t.label}
-                {t.count !== undefined && (
-                  <span className="tabular rounded-full bg-surface-2 px-1.5 text-[11px] text-muted">{t.count}</span>
-                )}
+                <span
+                  className={`tabular rounded-full px-1.5 text-[11px] font-bold ${tab === t.id ? "bg-white/25 text-white" : "bg-accent-wash text-accent-ink"}`}
+                >
+                  {t.count}
+                </span>
               </Link>
             ))}
           </nav>
-
-          {tab === "cronologia" && (
-            <div>
-              <p className="mb-4 text-xs text-muted">
-                Transcripción automática (puede contener errores). Debajo de cada fragmento, las señales que infirió la IA.
-              </p>
-              <Timeline segments={segments} signals={signals} />
-            </div>
-          )}
 
           {tab === "datos" && (
             <Card title="Números, cuentas y nombres">
@@ -173,55 +182,11 @@ export function IncidentReport({ detail, tab = "cronologia" }: { detail: Inciden
             </Card>
           )}
 
-          {tab === "ia" && (
-            <SignalList signals={signals} segments={segments} segmentHref={(id) => `${here}?tab=cronologia#seg-${id}`} />
-          )}
-
-          {tab === "revision" && (
-            <Card title="Correcciones y conclusiones revisadas">
-              {notes.length ? (
-                <ul className="mb-4 space-y-3">
-                  {notes.map((n) => (
-                    <li key={n.id} className="rounded-lg border border-line p-3 text-sm">
-                      <div className="mb-1 flex flex-wrap items-center gap-2 text-xs text-muted">
-                        <Tag tone={n.kind === "conclusion" ? "accent" : "neutral"}>{NOTE_KIND[n.kind]}</Tag>
-                        {n.author_name} · {fmtDateTime(n.created_at)}
-                      </div>
-                      <p className="whitespace-pre-wrap">{n.text}</p>
-                    </li>
-                  ))}
-                </ul>
-              ) : (
-                <div className="mb-4">
-                  <Empty>Sin correcciones ni conclusiones todavía.</Empty>
-                </div>
-              )}
-              <form action={addNoteAction.bind(null, incident.id)} className="no-print space-y-2">
-                <div className="flex flex-wrap gap-3 text-sm">
-                  {(["observacion", "conclusion", "correccion"] as const).map(
-                    (k, i) => (
-                      <label key={k} className="flex items-center gap-1.5">
-                        <input type="radio" name="kind" value={k} defaultChecked={i === 0} />
-                        {NOTE_KIND[k]}
-                      </label>
-                    ),
-                  )}
-                </div>
-                <textarea
-                  name="text"
-                  required
-                  rows={3}
-                  placeholder="Ej.: se corroboró con el banco que la cuenta fue reportada."
-                  className="w-full rounded-lg border border-line-strong bg-surface px-3 py-2 text-sm outline-none focus:border-accent"
-                />
-                <button className={buttonCls.secondary}>Agregar</button>
-              </form>
-            </Card>
-          )}
+          {tab === "ia" && <SignalList signals={signals} />}
         </div>
 
         <aside className="space-y-0 lg:border-l lg:border-line lg:pl-6">
-          <SideSection title="Riesgo">
+          <SideSection>
             <RiskMeter score={incident.risk_score} level={incident.risk_level} />
           </SideSection>
 
@@ -230,12 +195,10 @@ export function IncidentReport({ detail, tab = "cronologia" }: { detail: Inciden
               <Property label="Persona">{owner?.name ?? "Sin registrar"}</Property>
               <Property label="Inicio">{fmtDateTime(incident.started_at)}</Property>
               <Property label="Fin">{incident.ended_at ? fmtDateTime(incident.ended_at) : "En curso"}</Property>
-              <Property label="Canal">{channelLabel(incident.channel)}</Property>
               <Property label="Organización">{sharedOrg?.name ?? "—"}</Property>
               <Property label="ID externo">
                 <span className="tabular break-all">{incident.external_id ?? "—"}</span>
               </Property>
-              <Property label="Actualizado">{fmtDateTime(incident.updated_at)}</Property>
               <Property label="Muestras de voz">
                 {voiceSamples}
                 <span className="block text-xs text-muted">Dato biométrico sensible; similitud = pista, no identificación.</span>
@@ -243,58 +206,49 @@ export function IncidentReport({ detail, tab = "cronologia" }: { detail: Inciden
             </dl>
           </SideSection>
 
-            <SideSection title={`Casos relacionados (${links.length})`}>
-              {links.length ? (
-                <ul className="space-y-2">
-                  {links.map((l) => {
-                    const otherId = l.incident_a === incident.id ? l.incident_b : l.incident_a;
-                    const otherTitle = l.incident_a === incident.id ? l.b_title : l.a_title;
-                    return (
-                      <li key={l.id} className="rounded-lg border border-line p-3">
+          <SideSection title={`Casos relacionados (${links.length})`}>
+            {links.length ? (
+              <ul className="space-y-3">
+                {links.map((l) => {
+                  const isA = l.incident_a === incident.id;
+                  const otherId = isA ? l.incident_b : l.incident_a;
+                  return (
+                    <li key={l.id}>
+                      <Link href={`/panel/casos/${otherId}`} className="block rounded-2xl bg-surface-2 p-4 hover:bg-accent-wash">
                         <div className="flex items-start justify-between gap-2">
-                          <Link href={`/panel/casos/${otherId}`} className="flex gap-1.5 text-sm font-medium hover:underline">
+                          <span className="flex gap-1.5 text-sm font-semibold">
                             <FolderOpen size={14} className="mt-0.5 shrink-0 text-muted" aria-hidden />
-                            {otherTitle}
-                          </Link>
-                          <LinkStatusTag status={l.status} />
+                            {isA ? l.b_title : l.a_title}
+                          </span>
+                          <span className="tabular shrink-0 text-sm font-bold text-accent-ink">{pct(l.score)}</span>
                         </div>
-                        <div className="tabular mt-1 text-xs text-muted">Puntaje {pct(l.score)}</div>
-                        <LinkReasons reasons={l.reasons} />
-                        {l.status === "pendiente" && (
-                          <div className="no-print mt-2 flex gap-2">
-                            <form action={reviewLink.bind(null, l.id, "confirmado")}>
-                              <button className="rounded-md border border-line px-2 py-1 text-xs hover:bg-surface-2">
-                                Confirmar
-                              </button>
-                            </form>
-                            <form action={reviewLink.bind(null, l.id, "descartado")}>
-                              <button className="rounded-md border border-line px-2 py-1 text-xs hover:bg-surface-2">
-                                Descartar
-                              </button>
-                            </form>
-                          </div>
-                        )}
-                      </li>
-                    );
-                  })}
-                </ul>
-              ) : (
-                <p className="text-sm text-muted">No hay vínculos propuestos.</p>
-              )}
-            </SideSection>
-
-          <SideSection title="Acciones y permisos">
-            <ol className="space-y-2.5">
-              {actions.map((a) => (
-                <li key={a.id} className="relative border-l border-line pl-3 text-sm">
-                  <span className="absolute top-1.5 -left-[3px] h-1.5 w-1.5 rounded-full bg-line-strong" aria-hidden />
-                  <div className="text-xs text-muted">{fmtDateTime(a.created_at)}</div>
-                  <div className="text-fg-2">{a.detail}</div>
-                </li>
-              ))}
-            </ol>
+                        <div className="mt-2 flex flex-wrap gap-1.5">
+                          <ScamTypeChip type={isA ? l.b_scam_type : l.a_scam_type} />
+                        </div>
+                        <LinkReasons reasons={l.reasons.filter((r) => !/guion/i.test(r.detail))} />
+                      </Link>
+                    </li>
+                  );
+                })}
+              </ul>
+            ) : (
+              <p className="text-sm text-muted">La IA no encontró casos relacionados.</p>
+            )}
           </SideSection>
 
+          <SideSection title="Registro">
+            <ol className="space-y-2.5">
+              {actions
+                .filter((a) => a.kind !== "link_review")
+                .map((a) => (
+                  <li key={a.id} className="relative border-l border-line pl-3 text-sm">
+                    <span className="absolute top-1.5 -left-[3px] h-1.5 w-1.5 rounded-full bg-line-strong" aria-hidden />
+                    <div className="text-xs text-muted">{fmtDateTime(a.created_at)}</div>
+                    <div className="text-fg-2">{a.detail}</div>
+                  </li>
+                ))}
+            </ol>
+          </SideSection>
         </aside>
       </div>
     </article>
