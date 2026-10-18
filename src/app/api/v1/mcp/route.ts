@@ -2,11 +2,12 @@ import { withApi, ApiError, readJson } from "@/lib/api/http";
 import { audioMcp } from "@/lib/api/mcp";
 import { requireOrg } from "@/lib/api/audio";
 import { db } from "@/lib/db";
+import { canonicalOrg } from "@/lib/orgs";
 
 export const maxDuration = 30;
 // Las claves actuales son credenciales de servicio globales, nunca de la APK.
 export const POST = withApi(async (request) => {
-  const org=request.headers.get("X-Tiskz-Org");
+  const org=canonicalOrg(request.headers.get("X-Tiskz-Org"));
   if (!org) throw new ApiError(400,"missing_org","Indica X-Tiskz-Org.");
   await requireOrg(org,await db());
   const handler=audioMcp(org);

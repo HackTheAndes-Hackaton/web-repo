@@ -4,9 +4,10 @@ import { ApiError, ok, readJson, withApi } from "./http";
 import { enrollVoice, searchVoices } from "./voice-matches";
 import { refreshLinksFor } from "../links";
 import { emit } from "../events";
+import { canonicalOrg } from "../orgs";
 
 function organization(request: Request) {
-  const org = request.headers.get("X-Tiskz-Org");
+  const org = canonicalOrg(request.headers.get("X-Tiskz-Org"));
   if (!org || !/^[A-Za-z0-9_.:-]{1,64}$/.test(org)) throw new ApiError(400, "organization_required", "Indica X-Tiskz-Org.");
   return org;
 }

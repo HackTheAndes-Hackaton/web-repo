@@ -17,6 +17,9 @@ import { buildLinkGroups } from "../src/lib/link-groups.ts";
 import { getIncidentDetail, dashboardData, navCounts, listLinks, listBlockedNumbers } from "../src/lib/repo.ts";
 import { createSuspect, listSuspects, SuspectError, unassignCase } from "../src/lib/suspects.ts";
 import { listScamVoices, reviewVoice } from "../src/lib/voices.ts";
+import { getReputation } from "../src/lib/api/reputation.ts";
+import { clearNumberReport } from "../src/lib/number-reports.ts";
+import { canonicalOrg } from "../src/lib/orgs.ts";
 import { commitFindings, findingsInput } from "../src/lib/api/findings.ts";
 import { finalizeCase } from "../src/lib/api/case-finalizations.ts";
 import { explainPendingLink, explainTopPendingLinks } from "../src/lib/api/link-explanations.ts";
@@ -52,13 +55,13 @@ test('actualiza una base existente sin perder datos ni la revisión anterior; re
     await db.exec(initial);
     await db.exec("insert into incidents(id,title) values ('old-a','Caso conservado'),('old-b','Otro'); insert into links(id,incident_a,incident_b,score,status,reviewed_by) values ('old-link','old-a','old-b',0.8,'confirmado','Revisor anterior')");
     const files=await applyMigrations(sql);
-    assert.deepEqual(files,['20261017010000_call_data_and_review_history.sql','20261017020000_audio_fragments.sql','20261018000000_suspects.sql','20261018010000_report_versions.sql']);
+    assert.deepEqual(files,['20261017010000_call_data_and_review_history.sql','20261017020000_audio_fragments.sql','20261018000000_suspects.sql','20261018010000_report_versions.sql','20261018020000_single_org_and_report_clears.sql']);
     assert.equal((await sql`select title from incidents where id='old-a'`)[0].title,'Caso conservado');
     assert.equal((await sql`select simulated from incidents where id='old-a'`)[0].simulated,null);
     const [link]=await sql`select * from links where id='old-link'`;
     assert.equal(link.status,'confirmado'); assert.equal(link.reviewed_evidence.score,0.8);
     assert.deepEqual(await applyMigrations(sql),[]);
-    assert.equal((await sql`select count(*)::int n from app_meta.schema_migrations`)[0].n,5);
+    assert.equal((await sql`select count(*)::int n from app_meta.schema_migrations`)[0].n,6);
   });
 });
 
@@ -588,7 +591,7 @@ test('llamadas: extrae evidencia peruana, la recalcula sin duplicar y alimenta l
       const rep=async(n)=>(await (await getReputationHandler(new Request(`https://panel.test/api/v1/reputation/${n}`,{headers}),{params:Promise.resolve({number:n})})).json()).data;
       const r=await rep('+51946189585');
       assert.equal(r.reports,2);assert.equal(r.scam,1);assert.equal(r.suspicious,1);assert.equal(r.impersonating,'BCP');
-      assert.deepEqual(Object.keys(r).sort(),['impersonating','last_reported_at','mentioned_in','number_key','reports','scam','scam_type','suspicious']);
+      assert.deepEqual(Object.keys(r).sort(),['blocks','impersonating','last_reported_at','mentioned_in','number_key','reports','scam','scam_type','suspicious']);
       assert.equal((await rep('987654321')).mentioned_in,2);
       assert.equal((await rep('900000000')).reports,0);
     } finally {delete globalThis.__sql;delete globalThis.__dbReady;}
@@ -987,6 +990,56 @@ test('voces de estafadores: agrupa voces parecidas, solo de estafas propias, y c
       voices=await listScamVoices('org');
       assert.deepEqual(voices.map((v)=>v.status),['confirmada','descartada']);
       assert.equal((await sql`select count(*)::int n from actions where kind='voice_review'`)[0].n,4);
+    } finally { delete globalThis.__sql; delete globalThis.__dbReady; }
+  });
+});
+
+test('una sola organización: fusiona org_vecinal en org_uav y la API acepta el nombre anterior', async () => {
+  await database(async (_db,sql) => {
+    await applyMigrations(sql);
+    await sql`insert into organizations(id,name) values ('org_uav','UAV'),('org_vecinal','Vecinal')`;
+    await sql`insert into users(id,name,role,org_id) values ('ana','Ana','analista','org_vecinal')`;
+    await sql`insert into suspects(id,org_id,alias) values ('s1','org_uav','Banda'),('s2','org_vecinal','Banda')`;
+    await sql`insert into incidents(id,org_id,suspect_id) values ('v1','org_vecinal','s2')`;
+    await sql`insert into voice_profiles(id,org_id,public_code) values ('p1','org_vecinal','VOZ-1')`;
+    const merge=(await fs.readFile(new URL('../supabase/migrations/20261018020000_single_org_and_report_clears.sql', import.meta.url),'utf8')).split('-- "Eliminar reporte"')[0];
+    await sql.unsafe(merge);
+    assert.deepEqual((await sql`select id from organizations`).map((r)=>r.id),['org_uav']);
+    assert.equal((await sql`select org_id from incidents where id='v1'`)[0].org_id,'org_uav');
+    assert.equal((await sql`select org_id from users where id='ana'`)[0].org_id,'org_uav');
+    assert.equal((await sql`select alias from suspects where id='s2'`)[0].alias,'Banda (vecinal)');
+    assert.equal((await sql`select org_id from voice_profiles where id='p1'`)[0].org_id,'org_uav');
+    assert.equal(canonicalOrg('org_vecinal'),'org_uav');
+    assert.equal(canonicalOrg('org_uav'),'org_uav');
+    assert.equal(canonicalOrg(null),null);
+  });
+});
+
+test('reportes por bloqueo: con 3 bloqueos el número cuenta como reportado y "Eliminar reporte" borra su historial', async () => {
+  await database(async (_db,sql) => {
+    await fixture(sql);
+    const call=(id,blocked,verdict='none',at='2026-10-18T10:00:00Z')=>sql`insert into incidents(id,org_id,simulated,caller_e164,blocked,verdict,started_at)
+      values (${id},'org',false,'+51946189585',${blocked},${verdict},${at})`;
+    await call('k1',true); await call('k2',true);
+    let r=await getReputation('946189585',sql);
+    assert.equal(r.blocks,2); assert.equal(r.reports,0);
+    await call('k3',true); await call('k4',false,'suspicious');
+    r=await getReputation('946189585',sql);
+    assert.equal(r.blocks,3); assert.equal(r.reports,4); assert.equal(r.suspicious,1);
+    globalThis.__sql=sql;
+    globalThis.__dbReady=Promise.resolve();
+    try {
+      const session={userId:'analyst',name:'Analista',role:'analista',orgId:'org'};
+      const res=await clearNumberReport(session,'+51 946 189 585');
+      assert.equal(res.number_key,'+51946189585'); assert.equal(res.unblocked,3);
+      r=await getReputation('946189585',sql);
+      assert.equal(r.reports,0); assert.equal(r.blocks,0);
+      assert.equal((await sql`select count(*)::int n from incidents where caller_e164='+51946189585'`)[0].n,4);
+      assert.equal((await listBlockedNumbers('org')).length,0);
+      assert.equal((await sql`select count(*)::int n from actions where kind='report_cleared'`)[0].n,3);
+      // Lo que llega después del borrado vuelve a contar.
+      await call('k5',false,'scam',new Date(Date.now()+60000).toISOString());
+      assert.equal((await getReputation('946189585',sql)).reports,1);
     } finally { delete globalThis.__sql; delete globalThis.__dbReady; }
   });
 });
