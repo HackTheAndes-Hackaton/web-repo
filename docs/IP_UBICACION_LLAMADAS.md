@@ -1,4 +1,4 @@
-# IP y ubicación a partir de llamadas: opciones para Tiskz
+# IP y ubicación a partir de llamadas: opciones para PhoneWard
 
 Fecha de revisión: 17 de octubre de 2026. Estado: investigación y próximos pasos; no se implementan funciones de rastreo.
 

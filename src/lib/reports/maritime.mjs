@@ -58,7 +58,7 @@ export function validateReport(raw,segments) {
 export function maritimeReportConfig(options={}) {
   const agentId=options.agentId??process.env.MARITIME_REPORT_AGENT_ID;
   const apiKey=options.apiKey??process.env.MARITIME_REPORT_API_KEY;
-  const model=options.model??process.env.TISKZ_REPORT_MODEL??DEFAULT_MARITIME_MODEL;
+  const model=options.model??process.env.PHONEWARD_REPORT_MODEL??process.env.TISKZ_REPORT_MODEL??DEFAULT_MARITIME_MODEL;
   if(agentId&& !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(agentId)) throw failure('report_invalid_agent_id');
   if(typeof model!=='string'||!/^[a-zA-Z0-9_.:-]{1,100}$/.test(model)) throw failure('report_invalid_model');
   return {agentId,apiKey,model,configured:Boolean(agentId&&apiKey),endpoint:agentId?`https://api.maritime.sh/api/agents/${agentId}/chat`:null};

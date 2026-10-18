@@ -2,11 +2,11 @@ import "server-only";
 import { z } from "zod";
 import { db } from "../db";
 import { requireOrg, saveAudio, listAudio, loadAudio } from "./audio";
-import { ApiError, ok, readJson, withApi } from "./http";
+import { ApiError, ok, readJson, withApi, orgHeader } from "./http";
 
 async function organization(request: Request) {
-  const org = request.headers.get("X-Tiskz-Org");
-  if (!org) throw new ApiError(400, "missing_org", "Indica X-Tiskz-Org.");
+  const org = orgHeader(request);
+  if (!org) throw new ApiError(400, "missing_org", "Indica X-PhoneWard-Org.");
   await requireOrg(org, await db());
   return org;
 }

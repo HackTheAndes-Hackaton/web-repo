@@ -11,6 +11,14 @@ import { verifyApiKey, type ApiKey } from "../api-keys";
  *   error  → { error: { code, message, details? } }
  */
 
+/**
+ * Organización de la solicitud. X-PhoneWard-Org es el encabezado actual;
+ * X-Tiskz-Org se sigue aceptando para los clientes anteriores al cambio de nombre.
+ */
+export function orgHeader(request: Request) {
+  return request.headers.get("X-PhoneWard-Org") ?? request.headers.get("X-Tiskz-Org");
+}
+
 export class ApiError extends Error {
   constructor(
     public status: number,
@@ -35,7 +43,7 @@ export function okList(data: unknown[], pagination: { limit: number; offset: num
 function errorResponse(err: ApiError) {
   return Response.json(
     { error: { code: err.code, message: err.message, ...(err.details ? { details: err.details } : {}) } },
-    { status: err.status, headers: err.status === 401 ? { "WWW-Authenticate": 'Bearer realm="tiskz"' } : undefined },
+    { status: err.status, headers: err.status === 401 ? { "WWW-Authenticate": 'Bearer realm="phoneward"' } : undefined },
   );
 }
 

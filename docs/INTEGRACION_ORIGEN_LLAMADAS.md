@@ -18,7 +18,7 @@ El adaptador no interpreta campos arbitrarios de IP, URLs, cabeceras SIP ni SDP.
 
 Añadir `VAPI_PRIVATE_KEY` al entorno **del servidor web**, usando una clave privada de la cuenta que contiene las llamadas. El nombre está en `.env.example`. No usar `NEXT_PUBLIC_` ni enviarla a la APK. Si falta, consultar devuelve `503 vapi_not_configured`, sin borrar la última consulta correcta. Reiniciar el servidor después de configurar el entorno.
 
-Las llamadas al API requieren la clave de integración existente (`Authorization: Bearer …`) y `X-Tiskz-Org`. Estas claves de servicio son globales en el sistema actual: el encabezado de organización restringe la operación, pero no transforma una clave global en una credencial por usuario. Deben permanecer en el backend autorizado.
+Las llamadas al API requieren la clave de integración existente (`Authorization: Bearer …`) y `X-PhoneWard-Org`. Estas claves de servicio son globales en el sistema actual: el encabezado de organización restringe la operación, pero no transforma una clave global en una credencial por usuario. Deben permanecer en el backend autorizado.
 
 El incidente debe estar compartido con esa organización, no tener revocada la compartición y contar con `consent_snapshot.network_metadata_storage=true`. Este permiso debe proceder de una autorización específica de conservación registrada por el sistema de origen; la web no lo activa por el permiso de análisis, el permiso de audio ni la aprobación del analista. Definir conservación y eliminación con el equipo antes de recolectar datos reales.
 
@@ -31,7 +31,7 @@ No se modificó el backend desplegado: su código no está disponible en `agents
 
    `PUT /api/v1/incidents/{incident_id}/network-origin`
 
-   Encabezados: `Authorization: Bearer <clave de integración>`, `X-Tiskz-Org: <organización>`, `Content-Type: application/json`.
+   Encabezados: `Authorization: Bearer <clave de integración>`, `X-PhoneWard-Org: <organización>`, `Content-Type: application/json`.
 
    ```json
    {

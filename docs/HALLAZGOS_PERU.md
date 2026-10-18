@@ -7,7 +7,7 @@ Paso 1 del flujo de informes. Esta entrega guarda datos puntuales y marca que es
 1. Crear el incidente con `POST /api/v1/incidents` indicando `org_id`, `agent_session_id`, `started_at` y el origen `simulated`. La clave de servicio permanece en el backend; la APK utiliza sus tickets de sesión existentes.
 2. Si ya se guardó audio de esa sesión, reutilizar el `incident_id` que devuelve su carga: no crear otro incidente. Ese incidente ya tiene `agent_session_id`. El sistema de origen debe registrar la hora real de inicio antes de finalizar; el momento de subida de audio no acredita cuándo comenzó la llamada.
 3. Extraer señales e identificadores del contexto autorizado de la llamada. No copiar las citas de Comprensión a `summary`, `explanation` o metadatos. No inventar una IP ni usar el número del tramo Vapi como número del interlocutor original.
-4. Al cerrar la llamada, entregar el conjunto completo a `POST /api/v1/incidents/{id}/findings`, con `Authorization: Bearer <clave>` y `X-Tiskz-Org: <organización>`. La sesión y `simulated` deben coincidir con el incidente; no se asignan por parecido u horario.
+4. Al cerrar la llamada, entregar el conjunto completo a `POST /api/v1/incidents/{id}/findings`, con `Authorization: Bearer <clave>` y `X-PhoneWard-Org: <organización>`. La sesión y `simulated` deben coincidir con el incidente; no se asignan por parecido u horario.
 5. Reintentar la misma entrega con el mismo `run_id`, revisión y contenido. Una corrección usa un nuevo UUID y una revisión mayor. Las revisiones describen entregas del mismo incidente, no el estado de un informe del modelo.
 
 Ejemplo ficticio:

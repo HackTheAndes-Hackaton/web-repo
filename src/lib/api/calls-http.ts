@@ -1,14 +1,14 @@
 import "server-only";
 import { getCall, getIncidentTranscript, listCalls, parseCallId, saveCall } from "./calls";
-import { ApiError, ok, pagination, readJson, withApi } from "./http";
+import { ApiError, ok, pagination, readJson, withApi, orgHeader } from "./http";
 import { getReputation } from "./reputation";
 
 type CallCtx = { params: Promise<{ callId: string }> };
 type IncidentCtx = { params: Promise<{ id: string }> };
 
 function organization(request: Request) {
-  const org = request.headers.get("X-Tiskz-Org");
-  if (!org || !/^[A-Za-z0-9_.:-]{1,64}$/.test(org)) throw new ApiError(400, "organization_required", "Indica X-Tiskz-Org.");
+  const org = orgHeader(request);
+  if (!org || !/^[A-Za-z0-9_.:-]{1,64}$/.test(org)) throw new ApiError(400, "organization_required", "Indica X-PhoneWard-Org.");
   return org;
 }
 

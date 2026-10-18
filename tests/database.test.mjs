@@ -21,6 +21,8 @@ import { finalizeCase } from "../src/lib/api/case-finalizations.ts";
 import { explainPendingLink, explainTopPendingLinks } from "../src/lib/api/link-explanations.ts";
 import { normalizePhonePe, normalizeAmountPe, entityMatchKeyPe } from "../src/lib/peru.ts";
 import { extractEntities } from "../src/lib/heuristics.ts";
+import { orgHeader } from "../src/lib/api/http.ts";
+import { createApiKey, verifyApiKey } from "../src/lib/api-keys.ts";
 
 const initial = await fs.readFile(new URL('../supabase/migrations/20261017000000_init.sql', import.meta.url),'utf8');
 
@@ -259,13 +261,13 @@ test('HTTP audio autentica el servicio y comparte permisos, datos e idempotencia
   await database(async(_db,sql)=>{
     await fixture(sql);globalThis.__sql=sql;globalThis.__dbReady=Promise.resolve();
     try {
-      const key='tkz_synthetic_audio_http';
-      await sql`insert into api_keys(id,name,prefix,key_hash) values ('http-test-key','Prueba HTTP','tkz_synthetic',${createHash('sha256').update(key).digest('hex')})`;
+      const key='phw_synthetic_audio_http';
+      await sql`insert into api_keys(id,name,prefix,key_hash) values ('http-test-key','Prueba HTTP','phw_synthetic',${createHash('sha256').update(key).digest('hex')})`;
       const wave=Buffer.alloc(32044);wave.write('RIFF',0);wave.writeUInt32LE(wave.length-8,4);wave.write('WAVEfmt ',8);
       wave.writeUInt32LE(16,16);wave.writeUInt16LE(1,20);wave.writeUInt16LE(1,22);wave.writeUInt32LE(16000,24);wave.writeUInt32LE(32000,28);
       wave.writeUInt16LE(2,32);wave.writeUInt16LE(16,34);wave.write('data',36);wave.writeUInt32LE(32000,40);
       const input={session_id:randomUUID(),request_id:randomUUID(),consentimiento_conservacion:true,audio_base64:wave.toString('base64'),source:'webrtc_microphone',risk_percent:90,simulated:true};
-      const headers={'X-API-Key':key,'X-Tiskz-Org':'org','Content-Type':'application/json'};
+      const headers={'X-API-Key':key,'X-PhoneWard-Org':'org','Content-Type':'application/json'};
       const upload=(h=headers)=>new Request('https://panel.test/api/v1/audio-fragments',{method:'POST',headers:h,body:JSON.stringify(input)});
       assert.equal((await postAudio(upload({}))).status,401);
       assert.equal((await postAudio(upload({'X-API-Key':key}))).status,400);
@@ -278,7 +280,7 @@ test('HTTP audio autentica el servicio y comparte permisos, datos e idempotencia
       const ctx={params:Promise.resolve({id:saved.id})};
       const audio=await getAudio(request(),ctx);assert.equal(audio.status,200);assert.equal(audio.headers.get('Content-Type'),'audio/wav');
       assert.deepEqual(Buffer.from(await audio.arrayBuffer()),wave);
-      assert.equal((await getAudio(request({...headers,'X-Tiskz-Org':'other'}),ctx)).status,404);
+      assert.equal((await getAudio(request({...headers,'X-PhoneWard-Org':'other'}),ctx)).status,404);
       await sql`update incidents set consent_snapshot='{"voice_storage":false}' where id=${saved.incident_id}`;
       assert.equal((await getAudio(request(),ctx)).status,404);
       assert.equal((await postAudio(upload())).status,403);
@@ -397,9 +399,9 @@ test('HTTP procedencia exige clave, organización y permiso y no permite cachear
     await networkFixture(sql);
     globalThis.__sql=sql; globalThis.__dbReady=Promise.resolve();
     try {
-      const key='tkz_synthetic_network_http';
-      await sql`insert into api_keys(id,name,prefix,key_hash) values ('network-key','Prueba red','tkz_synthetic',${createHash('sha256').update(key).digest('hex')})`;
-      const headers={'Authorization':`Bearer ${key}`,'X-Tiskz-Org':'org','Content-Type':'application/json'};
+      const key='phw_synthetic_network_http';
+      await sql`insert into api_keys(id,name,prefix,key_hash) values ('network-key','Prueba red','phw_synthetic',${createHash('sha256').update(key).digest('hex')})`;
+      const headers={'Authorization':`Bearer ${key}`,'X-PhoneWard-Org':'org','Content-Type':'application/json'};
       const request=(method='GET',h=headers)=>new Request('https://panel.test/api/v1/incidents/a/network-origin',{
         method,headers:h,...(method==='PUT'?{body:JSON.stringify(networkInput)}:{}),
       });
@@ -407,7 +409,7 @@ test('HTTP procedencia exige clave, organización y permiso y no permite cachear
       const denied=await getOrigin(request('GET',{}),ctx);
       assert.equal(denied.status,401);assert.equal(denied.headers.get('Cache-Control'),'no-store');
       assert.equal((await getOrigin(request('GET',{Authorization:`Bearer ${key}`}),ctx)).status,400);
-      assert.equal((await getOrigin(request('GET',{...headers,'X-Tiskz-Org':'other'}),ctx)).status,404);
+      assert.equal((await getOrigin(request('GET',{...headers,'X-PhoneWard-Org':'other'}),ctx)).status,404);
       assert.equal((await (await getOrigin(request(),ctx)).json()).data,null);
       assert.equal((await postOrigin(request('POST'),ctx)).status,409);
       const bound=await putOrigin(request('PUT'),ctx);
@@ -501,9 +503,9 @@ test('llamadas: guarda la conversación, reemplaza al reenviar, aísla organizac
     await fixture(sql);
     globalThis.__sql=sql; globalThis.__dbReady=Promise.resolve();
     try {
-      const key='tkz_synthetic_calls_http';
-      await sql`insert into api_keys(id,name,prefix,key_hash) values ('calls-key','Prueba llamadas','tkz_synthetic',${createHash('sha256').update(key).digest('hex')})`;
-      const headers={'Authorization':`Bearer ${key}`,'X-Tiskz-Org':'org','Content-Type':'application/json'};
+      const key='phw_synthetic_calls_http';
+      await sql`insert into api_keys(id,name,prefix,key_hash) values ('calls-key','Prueba llamadas','phw_synthetic',${createHash('sha256').update(key).digest('hex')})`;
+      const headers={'Authorization':`Bearer ${key}`,'X-PhoneWard-Org':'org','Content-Type':'application/json'};
       const call={
         caller_number_raw:'946189585',caller_e164:'+51946189585',direction:'incoming',call_status:'ended',
         started_at:'2026-10-17T20:00:00.000Z',answered_at:'2026-10-17T20:00:05.000Z',ended_at:'2026-10-17T20:02:00.000Z',
@@ -518,7 +520,7 @@ test('llamadas: guarda la conversación, reemplaza al reenviar, aísla organizac
       const ctx={params:Promise.resolve({callId:'android-call-1'})};
       const put=(body,h=headers)=>putCallHandler(new Request('https://panel.test/api/v1/calls/android-call-1',{method:'PUT',headers:h,body:JSON.stringify(body)}),ctx);
       assert.equal((await put(call,{'Content-Type':'application/json'})).status,401);
-      assert.equal((await put(call,{...headers,'X-Tiskz-Org':''})).status,400);
+      assert.equal((await put(call,{...headers,'X-PhoneWard-Org':''})).status,400);
       assert.equal((await put({...call,transcript:[{id:'x',speaker:'robot',text:'?'}]})).status,422);
       const created=await put(call);
       assert.equal(created.status,201);assert.equal(created.headers.get('Cache-Control'),'no-store');
@@ -535,7 +537,7 @@ test('llamadas: guarda la conversación, reemplaza al reenviar, aísla organizac
       assert.deepEqual(read.data.transcript.map(l=>[l.speaker,l.flagged]),[['agent',false],['caller',true]]);
       assert.equal(read.data.incident.verdict,'suspicious');
       // Otra organización no ve la llamada.
-      assert.equal((await getCallHandler(new Request('https://panel.test/api/v1/calls/android-call-1',{headers:{...headers,'X-Tiskz-Org':'other'}}),ctx)).status,404);
+      assert.equal((await getCallHandler(new Request('https://panel.test/api/v1/calls/android-call-1',{headers:{...headers,'X-PhoneWard-Org':'other'}}),ctx)).status,404);
       const list=await (await listCallsHandler(new Request('https://panel.test/api/v1/calls?limit=10',{headers}),{})).json();
       assert.equal(list.pagination.total,1);assert.equal(list.data[0].transcript_lines,2);
       const lines=await (await getIncidentTranscriptHandler(new Request(`https://panel.test/api/v1/incidents/${saved.incident_id}/transcript`,{headers}),{params:Promise.resolve({id:saved.incident_id})})).json();
@@ -559,9 +561,9 @@ test('llamadas: extrae evidencia peruana, la recalcula sin duplicar y alimenta l
     await fixture(sql);
     globalThis.__sql=sql; globalThis.__dbReady=Promise.resolve();
     try {
-      const key='tkz_synthetic_reputation';
-      await sql`insert into api_keys(id,name,prefix,key_hash) values ('rep-key','Prueba reputación','tkz_synthetic',${createHash('sha256').update(key).digest('hex')})`;
-      const headers={'Authorization':`Bearer ${key}`,'X-Tiskz-Org':'org','Content-Type':'application/json'};
+      const key='phw_synthetic_reputation';
+      await sql`insert into api_keys(id,name,prefix,key_hash) values ('rep-key','Prueba reputación','phw_synthetic',${createHash('sha256').update(key).digest('hex')})`;
+      const headers={'Authorization':`Bearer ${key}`,'X-PhoneWard-Org':'org','Content-Type':'application/json'};
       const call=(over={})=>({caller_e164:'+51946189585',started_at:'2026-10-17T20:00:00Z',ended_at:'2026-10-17T20:02:00Z',verdict:'scam',risk_score:90,
         scam_type:'Suplantación bancaria',impersonating:'BCP',transcript:[
           {id:'a',speaker:'agent',text:'¿Quién llama y cuál es el motivo?'},
@@ -569,7 +571,7 @@ test('llamadas: extrae evidencia peruana, la recalcula sin duplicar y alimenta l
           {id:'c',speaker:'caller',text:'Para anular la compra dígame el código que le llegó por SMS y yapee S/ 500 al 987 654 321.'},
           {id:'d',speaker:'user',text:'No le daré ningún código.'},
         ],...over});
-      const put=(id,body,org='org')=>putCallHandler(new Request(`https://panel.test/api/v1/calls/${id}`,{method:'PUT',headers:{...headers,'X-Tiskz-Org':org},body:JSON.stringify(body)}),{params:Promise.resolve({callId:id})});
+      const put=(id,body,org='org')=>putCallHandler(new Request(`https://panel.test/api/v1/calls/${id}`,{method:'PUT',headers:{...headers,'X-PhoneWard-Org':org},body:JSON.stringify(body)}),{params:Promise.resolve({callId:id})});
       const saved=(await (await put('peru-1',call())).json()).data;
       const types=(await sql`select type from signals where incident_id=${saved.incident_id} order by type`).map(r=>r.type);
       for (const t of ['datos_sensibles','dinero','familiaridad','suplantacion']) assert.ok(types.includes(t),`falta ${t}: ${types}`);
@@ -923,5 +925,28 @@ test('Maritime: el cierre compara solo los dos candidatos más fuertes de la mis
     assert.equal((await sql`select evidence_snapshot from links where id='lnk-ad'`)[0].evidence_snapshot.ai_explanation,undefined);
     const second=await explainTopPendingLinks('org','a',{connection:sql,generate});
     assert.deepEqual(second.map(item=>item.link_id),['lnk-ad']);assert.equal(calls,3);
+  });
+});
+
+test('PhoneWard: claves y encabezado nuevos; los de Tiskz siguen funcionando', async () => {
+  const {createHash}=await import('node:crypto');
+  const url='https://panel.test/api/v1/calls/x';
+  assert.equal(orgHeader(new Request(url,{headers:{'X-PhoneWard-Org':'org'}})),'org');
+  assert.equal(orgHeader(new Request(url,{headers:{'X-Tiskz-Org':'org'}})),'org');
+  assert.equal(orgHeader(new Request(url,{headers:{'X-PhoneWard-Org':'nueva','X-Tiskz-Org':'vieja'}})),'nueva');
+  assert.equal(orgHeader(new Request(url)),null);
+  await database(async (_db,sql) => {
+    await fixture(sql);
+    globalThis.__sql=sql;
+    globalThis.__dbReady=Promise.resolve();
+    try {
+      const { key } = await createApiKey('Servicio');
+      assert.match(key,/^phw_[0-9a-f]{48}$/);
+      assert.equal((await verifyApiKey(key))?.name,'Servicio');
+      const legacy='tkz_clave_anterior';
+      await sql`insert into api_keys(id,name,prefix,key_hash) values ('legacy','Anterior','tkz_clave_an',${createHash('sha256').update(legacy).digest('hex')})`;
+      assert.equal((await verifyApiKey(legacy))?.name,'Anterior');
+      assert.equal(await verifyApiKey('otro_prefijo'),null);
+    } finally { delete globalThis.__sql; delete globalThis.__dbReady; }
   });
 });

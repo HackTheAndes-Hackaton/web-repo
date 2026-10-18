@@ -67,7 +67,7 @@ export function buildOpenApi(baseUrl: string) {
   schemas.CaseFinalization = inputSchema(caseFinalizationInput);
   paths["/case-finalizations"] = {post:{tags:["Hallazgos"],summary:"Entregar el cierre de un caso ficticio para analizarlo en la web",
     description:"Solo servidor. La web comprueba sus permisos y solicita la inferencia al agente Maritime. El contexto es transitorio; solo persiste hallazgos, resumen y hashes. request_id evita repetir la generación. Solo simulated=true en esta versión.",
-    parameters:[{name:"X-Tiskz-Org",in:"header",required:true,schema:{type:"string"}}],
+    parameters:[{name:"X-PhoneWard-Org",in:"header",required:true,schema:{type:"string"}}],
     requestBody:{required:true,content:json(ref("CaseFinalization"))},responses:{"200":{description:"Generación completada o resultado de la entrega anterior."},
       "202":{description:"La misma entrega sigue en curso; no se vuelve a invocar el modelo."},...errorResponses,
       "403":{description:"Permiso del reporte retirado o compartición revocada."},"409":{description:"Caso, request_id o generación incompatibles."},
@@ -78,7 +78,7 @@ export function buildOpenApi(baseUrl: string) {
       tags: ["Hallazgos"], summary: "Entregar hallazgos completos al finalizar una llamada",
       description: "Contrato pe-v1, solo servidor. Guarda señales, entidades, conclusión y constancia en una transacción. run_id idempotente y revisión creciente. No llama al modelo ni guarda transcripciones. La sesión debe coincidir con agent_session_id del incidente.",
       parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } },
-        { name: "X-Tiskz-Org", in: "header", required: true, schema: { type: "string" } }],
+        { name: "X-PhoneWard-Org", in: "header", required: true, schema: { type: "string" } }],
       requestBody: { required: true, content: json(ref("FinalizedFindings")) },
       responses: { "200": { description: "Entrega guardada o reintento idéntico reconocido." }, ...errorResponses,
         "403": { description: "Compartición revocada." }, "409": { description: "Sesión, origen, revisión o run_id incompatibles." } },
@@ -88,7 +88,7 @@ export function buildOpenApi(baseUrl: string) {
   schemas.NetworkBinding = inputSchema(networkBindingInput);
   const networkParameters = [
     { name: "id", in: "path", required: true, schema: { type: "string" } },
-    { name: "X-Tiskz-Org", in: "header", required: true, schema: { type: "string" } },
+    { name: "X-PhoneWard-Org", in: "header", required: true, schema: { type: "string" } },
   ];
   const networkResponse = { "200": { description: "Procedencia de la llamada; null si aún no se vinculó. La conferencia no aporta una IP original verificable.", content: json({ type: "object", properties: { data: { anyOf: [ref("NetworkOrigin"), { type: "null" }] } } }) }, ...errorResponses,
     "403": { description: "Conservación no autorizada o compartición revocada." }, "409": { description: "Identificadores incompatibles o llamada vinculada a otro incidente." },
@@ -109,9 +109,9 @@ export function buildOpenApi(baseUrl: string) {
       text: { type: "string" }, flagged: { type: "boolean" }, t_offset: { type: "number" }, external_segment_id: { type: ["string", "null"] },
     },
   };
-  const callOrg = { name: "X-Tiskz-Org", in: "header", required: true, schema: { type: "string" }, description: "Organización con la que la persona comparte sus llamadas." };
+  const callOrg = { name: "X-PhoneWard-Org", in: "header", required: true, schema: { type: "string" }, description: "Organización con la que la persona comparte sus llamadas." };
   const callIdParam = { name: "callId", in: "path", required: true, schema: { type: "string" }, description: "client_call_id generado por Android." };
-  const callErrors = { ...errorResponses, "400": { description: "Falta X-Tiskz-Org o el identificador no es válido.", content: json(ref("Error")) } };
+  const callErrors = { ...errorResponses, "400": { description: "Falta X-PhoneWard-Org o el identificador no es válido.", content: json(ref("Error")) } };
   paths["/calls"] = {
     get: {
       tags: ["Llamadas"], summary: "Listar llamadas recientes con su conversación guardada",
@@ -153,7 +153,7 @@ export function buildOpenApi(baseUrl: string) {
     },
   };
 
-  const audioOrg = {name:"X-Tiskz-Org",in:"header",required:true,schema:{type:"string"}};
+  const audioOrg = {name:"X-PhoneWard-Org",in:"header",required:true,schema:{type:"string"}};
   const audioSession = {name:"session_id",in:"query",required:true,schema:{type:"string",format:"uuid"}};
   paths["/audio-fragments"] = {
     post:{tags:["Audio"],summary:"Guardar WAV autorizado (misma operación que MCP)",parameters:[audioOrg],
@@ -167,8 +167,8 @@ export function buildOpenApi(baseUrl: string) {
   paths["/mcp"] = {
     post: {
       tags:["MCP"], summary:"Herramientas de audio autorizado mediante MCP Streamable HTTP",
-      description:"JSON-RPC MCP: tools/list y tools/call. Herramientas guardar_fragmento, listar_fragmentos y escuchar_fragmento. X-Tiskz-Org obligatorio; la clave de servicio es global y nunca debe distribuirse a la APK. WAV PCM16 mono 16 kHz, 1–15 segundos, máximo seis fragmentos por sesión. No genera embeddings ni identifica personas.",
-      parameters:[{name:"X-Tiskz-Org",in:"header",required:true,schema:{type:"string"}}],
+      description:"JSON-RPC MCP: tools/list y tools/call. Herramientas guardar_fragmento, listar_fragmentos y escuchar_fragmento. X-PhoneWard-Org obligatorio; la clave de servicio es global y nunca debe distribuirse a la APK. WAV PCM16 mono 16 kHz, 1–15 segundos, máximo seis fragmentos por sesión. No genera embeddings ni identifica personas.",
+      parameters:[{name:"X-PhoneWard-Org",in:"header",required:true,schema:{type:"string"}}],
       requestBody:{required:true,content:json({type:"object",required:["jsonrpc","method"],properties:{jsonrpc:{const:"2.0"},id:{},method:{type:"string"},params:{type:"object"}}})},
       responses:{"200":{description:"Resultado JSON-RPC MCP; audio recuperado como contenido audio/wav en base64."},...errorResponses},
     },
@@ -254,16 +254,16 @@ export function buildOpenApi(baseUrl: string) {
   return {
     openapi: "3.1.0",
     info: {
-      title: "Tiskz API",
+      title: "PhoneWard API",
       version: "1.0.0",
       description:
-        "API gateway del panel de Tiskz. La consumen el servidor de llamadas y el servicio de IA para registrar incidentes, señales, datos observados y muestras de voz.",
+        "API gateway del panel de PhoneWard. La consumen el servidor de llamadas y el servicio de IA para registrar incidentes, señales, datos observados y muestras de voz.",
     },
     servers: [{ url: `${baseUrl}/api/v1` }],
     security: [{ bearerAuth: [] }, { apiKeyHeader: [] }],
     components: {
       securitySchemes: {
-        bearerAuth: { type: "http", scheme: "bearer", description: "Authorization: Bearer tkz_..." },
+        bearerAuth: { type: "http", scheme: "bearer", description: "Authorization: Bearer phw_..." },
         apiKeyHeader: { type: "apiKey", in: "header", name: "X-API-Key" },
       },
       schemas,
