@@ -1,10 +1,10 @@
-# Propuesta para investigar la IP de origen con la arquitectura actual de PhoneWard
+# Propuesta para investigar la IP de origen con la arquitectura actual de Tiskz
 
 Fecha: 17 de octubre de 2026. Estado: propuesta, sin implementación ni llamadas de prueba.
 
 ## Resultado principal
 
-La aplicación actual incorpora una conferencia telefónica: recibe una llamada en la SIM, contesta, la pone en espera, llama al número del agente y solicita unir ambas llamadas. Esto permite que Vapi participe en el audio, pero **no establece una conexión IP directa entre el dispositivo del interlocutor y el backend de PhoneWard**.
+La aplicación actual incorpora una conferencia telefónica: recibe una llamada en la SIM, contesta, la pone en espera, llama al número del agente y solicita unir ambas llamadas. Esto permite que Vapi participe en el audio, pero **no establece una conexión IP directa entre el dispositivo del interlocutor y el backend de Tiskz**.
 
 Por esa razón no propongo una función que prometa «obtener la IP del estafador» con esa conferencia. Propongo un componente de servidor que reúna los identificadores de la llamada, consulte los metadatos oficiales disponibles y distinga si una dirección corresponde al usuario protegido, a un intermediario o a un extremo cuyo origen pueda corroborarse. Si el dato no llega por esa ruta, el resultado debe ser «IP de origen no disponible».
 

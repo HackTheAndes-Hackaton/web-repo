@@ -20,7 +20,7 @@ const METER: Record<RiskLevel, { headline: string; ink: string; color: string }>
 type ConversationLine = { id: string; speaker: string | null; text: string; flagged: boolean };
 
 const SPEAKER: Record<string, { label: string; mine: boolean; bubble: string; name: string }> = {
-  agent: { label: "Asistente PhoneWard", mine: true, bubble: "bg-accent text-white", name: "text-accent-ink" },
+  agent: { label: "Asistente Tiskz", mine: true, bubble: "bg-accent text-white", name: "text-accent-ink" },
   user: { label: "Titular", mine: true, bubble: "bg-good-wash text-good-ink", name: "text-good-ink" },
   caller: { label: "Quien llama", mine: false, bubble: "bg-surface-2 text-fg", name: "text-muted" },
 };

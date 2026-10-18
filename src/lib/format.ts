@@ -1,4 +1,4 @@
-export const APP_NAME = "PhoneWard";
+export const APP_NAME = "Tiskz";
 
 const dateTime = new Intl.DateTimeFormat("es-MX", { dateStyle: "medium", timeStyle: "short" });
 const timeOnly = new Intl.DateTimeFormat("es-MX", { timeStyle: "short" });

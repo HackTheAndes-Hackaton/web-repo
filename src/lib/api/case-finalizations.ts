@@ -25,7 +25,7 @@ export async function finalizeCase(org:string, value:unknown, actor:string, opti
   const sql = options.connection ?? await db();
   const id = incidentId(org,input.session_id);
   const digest = createHash("sha256").update(JSON.stringify(input)).digest("hex");
-  const demoAuthorized = options.allowDemo ?? (process.env.PHONEWARD_DEMO_REPORTS_ENABLED ?? process.env.TISKZ_DEMO_REPORTS_ENABLED) === "true";
+  const demoAuthorized = options.allowDemo ?? process.env.TISKZ_DEMO_REPORTS_ENABLED === "true";
   const claim = await sql.begin(async tx => {
     // La autorización de pruebas pertenece a la web, nunca al cliente móvil ni a voz.
     if (demoAuthorized) await tx`insert into incidents(id,org_id,agent_session_id,started_at,simulated,channel,title)

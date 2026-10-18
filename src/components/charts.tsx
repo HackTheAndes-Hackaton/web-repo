@@ -74,7 +74,7 @@ export function SignalBarChart({ data }: { data: { label: string; n: number }[] 
       <ResponsiveContainer width="100%" height="100%">
         <BarChart data={data} layout="vertical" margin={{ top: 0, right: 28, bottom: 0, left: 0 }}>
           <defs>
-            <linearGradient id="pw-brand-bar" x1="0" y1="0" x2="1" y2="0">
+            <linearGradient id="tiskz-brand-bar" x1="0" y1="0" x2="1" y2="0">
               <stop offset="0%" stopColor="var(--brand-1)" />
               <stop offset="60%" stopColor="var(--brand-2)" />
               <stop offset="100%" stopColor="var(--brand-3)" />
@@ -86,7 +86,7 @@ export function SignalBarChart({ data }: { data: { label: string; n: number }[] 
           <Bar
             dataKey="n"
             name="Casos con la señal"
-            fill="url(#pw-brand-bar)"
+            fill="url(#tiskz-brand-bar)"
             maxBarSize={16}
             radius={[0, 999, 999, 0]}
             label={{ position: "right", fill: "var(--fg-2)", fontSize: 11 }}

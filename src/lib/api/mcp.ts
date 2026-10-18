@@ -6,7 +6,7 @@ import { ApiError } from "./http";
 
 export function audioMcp(org: string, operations = { saveAudio, listAudio, loadAudio }) {
   return createMcpHandler(() => {
-    const server = new McpServer({ name:"phoneward-evidence", version:"1.0.0" });
+    const server = new McpServer({ name:"tiskz-evidence", version:"1.0.0" });
     const wrap = (fn: () => Promise<unknown>) => fn().then((data) => ({content:[{type:"text" as const,text:JSON.stringify(data)}]})).catch((err) => ({
       isError:true, content:[{type:"text" as const,text:err instanceof ApiError ? `${err.code}: ${err.message}` : "No se pudo procesar la evidencia."}],
     }));
