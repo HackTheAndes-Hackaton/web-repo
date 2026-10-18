@@ -4,8 +4,8 @@ import type { ReactNode } from "react";
 import { APP_NAME } from "@/lib/format";
 import { BrandLogo, buttonCls, PulsingShield } from "@/components/ui";
 
-/** Enlace público del APK (por ejemplo, un GitHub Release). Sin configurar, el botón queda deshabilitado. */
-const APK_URL = process.env.APK_URL;
+/** APK publicado en Google Drive: descarga directa, sin la página de aviso de Drive para archivos grandes. APK_URL lo reemplaza. */
+const APK_URL = process.env.APK_URL || "https://drive.usercontent.google.com/download?id=1ai_IcjIMNy9Y_RSWWwc6ulf9oaJj3rBn&export=download&confirm=t";
 
 function Step({ n, icon, title, body }: { n: number; icon: ReactNode; title: string; body: string }) {
   return (
