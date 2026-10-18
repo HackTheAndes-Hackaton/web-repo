@@ -24,7 +24,7 @@ function ApkButton({ className = "" }: { className?: string }) {
   if (!APK_URL) {
     return (
       <span
-        className={`inline-flex cursor-not-allowed items-center justify-center gap-2 rounded-full bg-white/20 px-6 py-3 text-sm font-semibold text-white/80 ring-1 ring-white/30 ${className}`}
+        className={`inline-flex cursor-not-allowed items-center justify-center gap-2 rounded-full bg-white/75 px-6 py-3 text-sm font-semibold text-accent-ink/70 shadow-soft ${className}`}
         aria-disabled="true"
         title="El APK todavía no está publicado"
       >
@@ -75,7 +75,7 @@ export default function Home() {
                 <ApkButton />
                 <Link
                   href="/panel"
-                  className="bg-glass inline-flex items-center justify-center gap-2 rounded-full px-6 py-3 text-sm font-semibold ring-1 ring-white/30 transition hover:bg-white/20"
+                  className="inline-flex items-center justify-center gap-2 rounded-full bg-white px-6 py-3 text-sm font-semibold text-accent-ink shadow-soft transition hover:bg-accent-wash"
                 >
                   <LayoutDashboard size={17} aria-hidden />
                   Ir al panel administrativo
