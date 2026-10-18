@@ -3,6 +3,7 @@ import { z } from "zod";
 import { RESOURCES, type ResourceDef } from "./resources";
 import { audioInput } from "./audio";
 import { callInput, SPEAKERS } from "./calls";
+import { findingsInput } from "./findings";
 import { networkBindingInput, networkOriginSchema } from "../network-origin";
 
 /** Especificación OpenAPI 3.1 generada a partir de las definiciones de recursos. */
@@ -62,6 +63,18 @@ export function buildOpenApi(baseUrl: string) {
     },
   };
   const paths: Record<string, unknown> = {};
+  schemas.FinalizedFindings = inputSchema(findingsInput);
+  paths["/incidents/{id}/findings"] = {
+    post: {
+      tags: ["Hallazgos"], summary: "Entregar hallazgos completos al finalizar una llamada",
+      description: "Contrato pe-v1, solo servidor. Guarda señales, entidades, conclusión y constancia en una transacción. run_id idempotente y revisión creciente. No llama a Grok ni guarda transcripciones. La sesión debe coincidir con agent_session_id del incidente.",
+      parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } },
+        { name: "X-Tiskz-Org", in: "header", required: true, schema: { type: "string" } }],
+      requestBody: { required: true, content: json(ref("FinalizedFindings")) },
+      responses: { "200": { description: "Entrega guardada o reintento idéntico reconocido." }, ...errorResponses,
+        "403": { description: "Compartición revocada." }, "409": { description: "Sesión, origen, revisión o run_id incompatibles." } },
+    },
+  };
   schemas.NetworkOrigin = inputSchema(networkOriginSchema);
   schemas.NetworkBinding = inputSchema(networkBindingInput);
   const networkParameters = [

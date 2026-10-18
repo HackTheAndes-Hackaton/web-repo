@@ -11,6 +11,11 @@ La captura de audio y el análisis con IA viven en otros servicios; este proyect
 
 Next.js 16 (App Router) + Postgres (Supabase, con `pgvector`).
 
+**Hallazgos finales para Perú:** [contrato pe-v1](docs/HALLAZGOS_PERU.md).
+`POST /api/v1/incidents/{id}/findings` recibe el cierre completo en una transacción,
+con sesión correlacionada, UUID idempotente y revisión creciente. No llama aún a Grok.
+Teléfonos, cuentas, CCI, billeteras y montos se normalizan en el servidor para Perú.
+
 **Actualización de la base existente:** consulta [ACTUALIZAR_SUPABASE.md](docs/ACTUALIZAR_SUPABASE.md).
 Incluye los campos del móvil, muestras de voz compatibles y revisiones con evidencia conservada.
 
@@ -107,7 +112,7 @@ Cada recurso tiene:
 POST /api/v1/incidents            {"external_id":"llamada-8841","org_id":"org_uav","channel":"llamada"}
 # 2. La IA agrega señales, datos y voz (sin citas de la conversación)
 POST /api/v1/incidents/{id}/signals    [{"type":"dinero","explanation":"...","confidence":0.9}]
-POST /api/v1/incidents/{id}/entities   [{"kind":"telefono","value":"55 2841 7730","provenance":"mostrado"}]
+POST /api/v1/incidents/{id}/entities   [{"kind":"telefono","value":"+51 999 888 777","provenance":"mostrado"}]
 POST /api/v1/incidents/{id}/voice-samples {"embedding":[...192 números...]}
 # 3. Se cierra con el riesgo final (risk_level se deriva de risk_score si no se manda)
 PATCH /api/v1/incidents/{id}      {"status":"finalizado","ended_at":"...","risk_score":82,"summary":"..."}

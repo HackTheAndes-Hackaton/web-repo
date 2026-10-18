@@ -32,12 +32,14 @@ export const SIGNAL_LABELS: Record<string, string> = {
   familiaridad: "Saludo eufórico o familiaridad forzada",
 };
 
-export const ENTITY_KINDS = ["telefono", "cuenta", "monto", "nombre", "organizacion", "lugar"] as const;
+export const ENTITY_KINDS = ["telefono", "cuenta", "cci", "billetera", "monto", "nombre", "organizacion", "lugar"] as const;
 export type EntityKind = (typeof ENTITY_KINDS)[number];
 
 export const ENTITY_LABELS: Record<string, string> = {
   telefono: "Teléfono",
-  cuenta: "Cuenta / tarjeta",
+  cuenta: "Cuenta bancaria",
+  cci: "Código de Cuenta Interbancario (CCI)",
+  billetera: "Billetera digital",
   monto: "Monto",
   nombre: "Nombre",
   organizacion: "Organización",

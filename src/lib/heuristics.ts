@@ -1,4 +1,5 @@
 import type { EntityKind, SignalType } from "./types";
+import { normalizeObservedEntityPe, normalizePhonePe } from "./peru";
 
 /**
  * Análisis por reglas. Se usa cuando no hay credenciales de Claude o si la API
@@ -25,8 +26,8 @@ const RULES: Rule[] = [
   {
     type: "dinero",
     patterns: [
-      /\b(deposit|transfier|transferencia|env[ií]a(me|le)?|manda(me|le)?)\w*\b.*\b(dinero|pesos|d[oó]lares|lana|feria)\b/i,
-      /\b(dinero|pesos|d[oó]lares|rescate|fianza|multa|pago|pagar|transferencia|tarjeta de regalo|oxxo|retiro sin tarjeta)\b/i,
+      /\b(deposit|transfier|transferencia|env[ií]a(me|le)?|manda(me|le)?)\w*\b.*\b(dinero|soles|d[oó]lares)\b/i,
+      /\b(dinero|soles|d[oó]lares|rescate|fianza|multa|pago|pagar|transferencia|yape|plin|retiro sin tarjeta)\b/i,
       /\$\s?\d/,
       // Perú: soles, billeteras digitales y depósitos.
       /\b(yape(a|ar|ame|ale)?|plin(ea|ear)?|soles|dep[oó]sit\w*|transfi[eé]r\w*|cuenta interbancaria|cci)\b/i,
@@ -72,7 +73,7 @@ const RULES: Rule[] = [
   {
     type: "suplantacion",
     patterns: [
-      /\b(soy|habla|le hablamos|te hablamos) (de|del) (banco|departamento de fraudes|sat|ministerio p[uú]blico|fiscal[ií]a|polic[ií]a)\b/i,
+      /\b(soy|habla|le hablamos|te hablamos) (de|del) (banco|departamento de fraudes|sunat|ministerio p[uú]blico|fiscal[ií]a|polic[ií]a)\b/i,
       /\bsoy tu (hijo|hija|nieto|nieta|sobrino|sobrina|primo|prima)\b/i,
       /\b(no me reconoces|adivina qui[eé]n (soy|habla)|cambi[eé] de n[uú]mero)\b/i,
       /\b(licenciado|agente|oficial|comandante)\b/i,
@@ -180,32 +181,10 @@ export function scoreFromSignalTypes(types: Iterable<SignalType>): number {
 }
 
 const ORGS = [
-  "BBVA",
-  "Banorte",
-  "Santander",
-  "Banamex",
-  "HSBC",
-  "Scotiabank",
-  "Banco Azteca",
-  "SAT",
-  "IMSS",
-  "Fiscalía",
-  "Policía",
-  "Ministerio Público",
-  "Guardia Nacional",
-  "CONDUSEF",
-  "BCP",
-  "Interbank",
-  "Banco de la Nación",
-  "SUNAT",
-  "RENIEC",
-  "PNP",
-  "Yape",
-  "Plin",
-  "Claro",
-  "Movistar",
-  "Entel",
-  "Bitel",
+  "BCP", "BBVA", "Interbank", "Scotiabank", "Banco de la Nación",
+  "Yape", "Plin", "SUNAT", "RENIEC", "Fiscalía", "Policía",
+  "Ministerio Público", "PNP", "OSIPTEL",
+
 ];
 
 export function normalizeText(s: string) {
@@ -224,33 +203,27 @@ export function extractEntities(text: string): DetectedEntity[] {
     }
   };
 
-  // Cuentas, tarjetas, CLABE o CCI (13 a 20 dígitos, con o sin espacios: BCP 14, CCI 20).
-  for (const m of text.matchAll(/\b(?:\d[\s-]?){13,20}\b/g)) {
-    const digits = m[0].replace(/\D/g, "");
-    if (digits.length >= 13 && digits.length <= 20) push("cuenta", m[0], digits);
+  // Solo números etiquetados como cuenta o CCI; una tarjeta no es una cuenta.
+  for (const m of text.matchAll(/\b(CCI|cuenta)(?:\s+(?:bancaria|n[uú]mero|nro\.?))?\s*[:#]?\s*((?:\d[ -]?){6,20})(?!\d)/gi)) {
+    const kind = m[1].toLowerCase() === "cci" ? "cci" : "cuenta";
+    const value = m[2].trim();
+    const normalized = normalizeObservedEntityPe(kind, value);
+    if (!normalized.startsWith("sin_normalizar:")) push(kind, value, normalized);
+
   }
 
-  // Celulares de Perú (9 dígitos que empiezan con 9, +51 opcional): también es el número de Yape o Plin.
-  for (const m of text.matchAll(/(?:\+?51[\s-]?)?\b9\d{2}[\s-]?\d{3}[\s-]?\d{3}\b/g)) {
-    const digits = m[0].replace(/\D/g, "").slice(-9);
-    if (!out.some((e) => e.kind === "cuenta" && e.normalized.includes(digits))) push("telefono", m[0], digits);
-  }
-
-  // Teléfonos de 10 dígitos (México), con prefijo opcional.
-  for (const m of text.matchAll(/(?:\+?52[\s-]?)?\(?\d{2,3}\)?[\s-]?\d{3,4}[\s-]?\d{4}\b/g)) {
-    const digits = m[0].replace(/\D/g, "");
-    const last10 = digits.slice(-10);
-    if (last10.length === 10 && !out.some((e) => e.kind === "cuenta" && e.normalized.includes(digits))) {
-      push("telefono", m[0], last10);
-    }
+  // Móviles peruanos completos. No se recortan sufijos de números extranjeros.
+  for (const m of text.matchAll(/(?<![\d+])\+?\d[\d -]{7,23}\d(?!\d)/g)) {
+    if (out.some(e => ["cuenta", "cci"].includes(e.kind) && e.value.includes(m[0]))) continue;
+    const normalized = normalizePhonePe(m[0]);
+    if (normalized) push("telefono", m[0], normalized);
   }
 
   // Montos.
-  for (const m of text.matchAll(/\$\s?\d[\d,.]*(?:\s?mil)?|\bS\/\.?\s?\d[\d,.]*(?:\s?mil)?|\b\d[\d,.]*\s?(?:mil\s)?(?:pesos|d[oó]lares|soles)\b/gi)) {
+  for (const m of text.matchAll(/(?:S\/\.?|US\$|PEN|USD)\s?\d[\d,.]*|\b\d[\d,.]*\s?(?:soles|d[oó]lares)\b/gi)) {
+
     const raw = m[0];
-    let n = Number(raw.replace(/[^\d.]/g, "").replace(/\.(?=\d{3}\b)/g, ""));
-    if (/mil/i.test(raw)) n *= 1000;
-    if (n > 0) push("monto", raw, String(Math.round(n)));
+    push("monto", raw, normalizeObservedEntityPe("monto", raw));
   }
 
   // Organizaciones mencionadas.
@@ -276,13 +249,7 @@ export function extractEntities(text: string): DetectedEntity[] {
 }
 
 /** Valor normalizado de un dato para compararlo entre casos. */
-export function normalizeEntity(kind: string, value: string): string {
-  if (kind === "telefono") {
-    const digits = value.replace(/\D/g, "");
-    // Perú: +51 9XXXXXXXX y 9XXXXXXXX son el mismo celular.
-    if (/^(51)?9\d{8}$/.test(digits)) return digits.slice(-9);
-    return digits.slice(-10);
-  }
-  if (kind === "cuenta" || kind === "monto") return value.replace(/\D/g, "");
-  return normalizeText(value);
+export function normalizeEntity(kind: string, value: string, metadata: Record<string, unknown> = {}): string {
+  return normalizeObservedEntityPe(kind, value, metadata);
+
 }

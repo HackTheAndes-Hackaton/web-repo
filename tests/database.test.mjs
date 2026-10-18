@@ -15,6 +15,9 @@ import { bindNetworkOrigin, getNetworkOrigin, inspectNetworkOrigin } from "../sr
 import { getVapiCall } from "../src/lib/api/vapi.ts";
 import { buildLinkGroups } from "../src/lib/link-groups.ts";
 import { getIncidentDetail, dashboardData, navCounts } from "../src/lib/repo.ts";
+import { commitFindings, findingsInput } from "../src/lib/api/findings.ts";
+import { normalizePhonePe, normalizeAmountPe, entityMatchKeyPe } from "../src/lib/peru.ts";
+import { extractEntities } from "../src/lib/heuristics.ts";
 
 const initial = await fs.readFile(new URL('../supabase/migrations/20261017000000_init.sql', import.meta.url),'utf8');
 
@@ -585,5 +588,144 @@ test('llamadas: extrae evidencia peruana, la recalcula sin duplicar y alimenta l
       assert.equal((await rep('987654321')).mentioned_in,2);
       assert.equal((await rep('900000000')).reports,0);
     } finally {delete globalThis.__sql;delete globalThis.__dbReady;}
+  });
+});
+
+function completedFindings() {
+  return {schema_version:'pe-v1',run_id:'11111111-1111-4111-8111-111111111111',revision:1,
+    session_id:'session-a',simulated:false,ended_at:'2026-10-17T21:00:00Z',
+    analysis:{risk_score:75,verdict:'suspicious',risk_reasons:['Solicitud de transferencia con presión'],
+      summary:'Caso ficticio para revisar.',recommendation:'Verificar por un canal independiente.',
+      scam_type:'Suplantación bancaria',impersonating:'Banco mencionado',model_id:'modelo-ficticio'},
+    signals:[{type:'urgencia',explanation:'Se pide actuar inmediatamente.',confidence:0.8,source:'ia'}],
+    entities:[{kind:'telefono',value:'999 888 777',provenance:'mostrado'},
+      {kind:'cuenta',value:'191-1234567-0-01',provenance:'mencionado',analysis_meta:{bank:'BCP',country:'PE'}},
+      {kind:'monto',value:'S/ 1,500.50',provenance:'mencionado',analysis_meta:{currency:'PEN'}}]};
+}
+async function findingsFixture(sql) {
+  await fixture(sql);
+  await sql`update incidents set agent_session_id='session-a',started_at='2026-10-17T20:00:00Z',
+    analysis_meta='{"network_origin":{"binding":{"client_call_id":"android-a"}}}' where id='a'`;
+}
+
+test('Perú: normaliza móviles y fijos completos sin recortar números ni inventar códigos de área',()=>{
+  for(const raw of ['999888777','+51 999 888 777','51999888777','0051 999-888-777']) assert.equal(normalizePhonePe(raw),'+51999888777');
+  assert.equal(normalizePhonePe('(01) 234-5678'),'+5112345678');
+  for(const raw of ['2345678','99988877','+52 999 888 777','+519998887770','anónimo']) assert.equal(normalizePhonePe(raw),null);
+  assert.equal(extractEntities('Número +52 999 888 777.').some(e=>e.kind==='telefono'),false);
+  assert.equal(extractEntities('Número +51 999 888 777.')[0].normalized,'+51999888777');
+});
+
+test('Perú: cuentas requieren banco, CCI y billeteras son distintos y los montos conservan centavos y moneda',()=>{
+  const account=bank=>({kind:'cuenta',value:'191-1234567-0-01',analysis_meta:{bank}});
+  assert.equal(entityMatchKeyPe(account(undefined)),null);
+  assert.equal(entityMatchKeyPe(account('BCP')),entityMatchKeyPe(account('Banco de Crédito del Perú')));
+  assert.notEqual(entityMatchKeyPe(account('BCP')),entityMatchKeyPe(account('Interbank')));
+  assert.equal(entityMatchKeyPe({kind:'cci',value:'123'}),null);
+  assert.equal(entityMatchKeyPe({kind:'cci',value:'002 000 000000000000 01'}),'cci:00200000000000000001');
+  assert.notEqual(entityMatchKeyPe({kind:'billetera',value:'999888777',analysis_meta:{wallet:'Yape'}}),
+    entityMatchKeyPe({kind:'billetera',value:'999888777',analysis_meta:{wallet:'Plin'}}));
+  assert.equal(normalizeAmountPe('S/ 1,500.50'),'PEN:1500.50');
+  assert.equal(normalizeAmountPe('1.500,50 soles'),'PEN:1500.50');
+  assert.equal(normalizeAmountPe('US$ 1500.50'),'USD:1500.50');
+  assert.equal(normalizeAmountPe('1500.50'),'moneda_desconocida:1500.50');
+});
+
+test('el CRUD recalcula la normalización desde el original y diferencia bancos en un mismo incidente',async()=>{
+  await database(async(_db,sql)=>{
+    await fixture(sql);globalThis.__sql=sql;globalThis.__dbReady=true;
+    try {
+      const def=getResource('entities');
+      const phone=await createRows(def,{incident_id:'a',kind:'telefono',value:'999 888 777',normalized:'falso'});
+      assert.equal(phone.data.normalized,'+51999888777');
+      const patched=await updateRow(def,phone.data.id,{value:'+51 999 888 776',normalized:'falso'});
+      assert.equal(patched.normalized,'+51999888776');
+      await createRows(def,{incident_id:'a',kind:'cuenta',value:'123456789',analysis_meta:{bank:'BCP'}});
+      await createRows(def,{incident_id:'a',kind:'cuenta',value:'123456789',analysis_meta:{bank:'Interbank'}});
+      assert.equal((await sql`select count(*)::int n from entities where kind='cuenta'`)[0].n,2);
+    } finally {delete globalThis.__sql;delete globalThis.__dbReady;}
+  });
+});
+
+test('hallazgos: entrega atómica, reintentos, versiones y conservación de procedencia y aportes previos',async()=>{
+  await database(async(_db,sql)=>{
+    await findingsFixture(sql);
+    await sql`insert into entities(id,incident_id,kind,value,normalized) values ('user-data','a','nombre','Persona ficticia','persona ficticia')`;
+    const input=completedFindings();
+    assert.equal((await commitFindings('org','a',input,'key',sql)).duplicate,false);
+    assert.equal((await commitFindings('org','a',input,'key',sql)).duplicate,true);
+    assert.equal((await sql`select count(*)::int n from actions where kind='findings_committed'`)[0].n,1);
+    let [incident]=await sql`select * from incidents where id='a'`;
+    assert.equal(incident.status,'finalizado');assert.equal(incident.analysis_meta.findings_batch.ready,true);
+    assert.equal(incident.analysis_meta.network_origin.binding.client_call_id,'android-a');
+    await assert.rejects(commitFindings('org','a',{...input,analysis:{...input.analysis,summary:'Cambio'}},'key',sql),e=>e.code==='idempotency_conflict');
+    const next={...input,revision:2,run_id:'22222222-2222-4222-8222-222222222222',entities:[]};
+    await commitFindings('org','a',next,'key',sql);
+    assert.equal((await sql`select count(*)::int n from entities where incident_id='a'`)[0].n,1);
+    assert.equal((await sql`select count(*)::int n from signals where incident_id='a'`)[0].n,1);
+    assert.equal((await commitFindings('org','a',input,'key',sql)).duplicate,true);
+    [incident]=await sql`select * from incidents where id='a'`;
+    assert.equal(incident.analysis_meta.findings_batch.revision,2);
+    await assert.rejects(commitFindings('org','a',{...input,run_id:'33333333-3333-4333-8333-333333333333'},'key',sql),e=>e.code==='stale_findings');
+  });
+});
+
+test('hallazgos: impide sesión, organización, origen y permisos incompatibles; rechaza conversación y metadatos reservados',async()=>{
+  await database(async(_db,sql)=>{
+    await findingsFixture(sql);const input=completedFindings();
+    await assert.rejects(commitFindings('other','a',input,'key',sql),e=>e.status===404);
+    for(const extra of [{session_id:'otra'},{simulated:true}]) await assert.rejects(commitFindings('org','a',{...input,...extra},'key',sql),e=>e.code==='source_conflict');
+    assert.equal(findingsInput.safeParse({...input,transcripcion:'No debe guardarse'}).success,false);
+    assert.equal(findingsInput.safeParse({...input,entities:[{...input.entities[0],analysis_meta:{nested:{audio_base64:'abc'}}}]}).success,false);
+    assert.equal(getResource('incidents').update.safeParse({analysis_meta:{findings_batch:{ready:true}}}).success,false);
+    await sql`update incidents set sharing_revoked_at=now() where id='a'`;
+    await assert.rejects(commitFindings('org','a',input,'key',sql),e=>e.status===403);
+    assert.equal((await sql`select count(*)::int n from actions where kind='findings_committed'`)[0].n,0);
+  });
+});
+
+test('hallazgos: un error de persistencia revierte señales, cierre y constancia de recepción',async()=>{
+  await database(async(local,sql)=>{
+    await findingsFixture(sql);
+    await local.exec("create function reject_test_entity() returns trigger language plpgsql as $$ begin raise exception 'fallo simulado'; end; $$; create trigger reject_test_entity before insert on entities for each row execute function reject_test_entity()");
+    await assert.rejects(commitFindings('org','a',completedFindings(),'key',sql));
+    assert.equal((await sql`select count(*)::int n from signals`)[0].n,0);
+    assert.equal((await sql`select count(*)::int n from actions where kind='findings_committed'`)[0].n,0);
+    assert.equal((await sql`select status from incidents where id='a'`)[0].status,'en_curso');
+  });
+});
+
+test('hallazgos: una estimación ausente no inventa cero y la constancia no puede falsificarse por CRUD',async()=>{
+  await database(async(_db,sql)=>{
+    await findingsFixture(sql);
+    await sql`update incidents set risk_score=82,risk_level='alto' where id='a'`;
+    const input=completedFindings();input.analysis.risk_score=null;
+    await commitFindings('org','a',input,'key',sql);
+    const [incident]=await sql`select * from incidents where id='a'`;
+    assert.equal(incident.risk_score,82);assert.equal(incident.analysis_meta.findings_batch.risk_available,false);
+    const [receipt]=await sql`select * from actions where kind='findings_committed'`;
+    globalThis.__sql=sql;globalThis.__dbReady=true;
+    try {
+      const def=getResource('actions');
+      await assert.rejects(createRows(def,{incident_id:'a',kind:'findings_committed',detail:'Inventado'}),e=>e.code==='reserved_action');
+      await assert.rejects(updateRow(def,receipt.id,{detail:'Alterado'}),e=>e.code==='immutable_review');
+      await assert.rejects(deleteRow(def,receipt.id),e=>e.code==='immutable_review');
+      const note=await createRows(def,{incident_id:'a',kind:'otro',detail:'Otro evento'});
+      await assert.rejects(updateRow(def,note.data.id,{kind:'findings_committed'}),e=>e.code==='reserved_action');
+    } finally {delete globalThis.__sql;delete globalThis.__dbReady;}
+  });
+});
+
+test('Perú: el motor no une cuentas de bancos distintos aunque el normalized previo coincida',async()=>{
+  await database(async(_db,sql)=>{
+    await fixture(sql);
+    await sql`insert into entities(id,incident_id,kind,value,normalized,analysis_meta) values
+      ('bank-a','a','cuenta','123456789','valor-antiguo','{"bank":"BCP"}'),
+      ('bank-b','b','cuenta','123456789','valor-antiguo','{"bank":"Interbank"}')`;
+    await refreshLinksFor('a',sql);
+    assert.equal((await sql`select count(*)::int n from links`)[0].n,0);
+    await sql`update entities set analysis_meta='{"bank":"Banco de Crédito del Perú"}' where id='bank-b'`;
+    await refreshLinksFor('a',sql);
+    assert.equal((await sql`select count(*)::int n from links`)[0].n,1);
   });
 });

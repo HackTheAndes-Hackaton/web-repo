@@ -2,6 +2,7 @@ import "server-only";
 import type postgres from "postgres";
 import { db, newId, nowIso, type Db } from "./db";
 import { ENTITY_LABELS, type EntityKind, type LinkReason, type SignalType } from "./types";
+import { entityMatchKeyPe } from "./peru";
 
 /**
  * Propone vínculos entre incidentes compartidos con la misma organización.
@@ -13,7 +14,7 @@ import { ENTITY_LABELS, type EntityKind, type LinkReason, type SignalType } from
 interface Profile {
   id: string;
   signalTypes: Set<SignalType>;
-  entities: { kind: EntityKind; normalized: string; value: string }[];
+  entities: { kind: EntityKind; normalized: string; value: string; analysis_meta: Record<string, unknown> }[];
 }
 
 /** Carga en lote las señales y los datos de varios incidentes. */
@@ -21,8 +22,8 @@ async function loadProfiles(sql: Db, ids: string[]) {
   const [types, entities] = await Promise.all([
     sql<{ incident_id: string; type: SignalType }[]>`
       select distinct incident_id, type from signals where incident_id in ${sql(ids)}`,
-    sql<{ incident_id: string; kind: EntityKind; normalized: string; value: string }[]>`
-      select incident_id, kind, normalized, value from entities where incident_id in ${sql(ids)}`,
+    sql<{ incident_id: string; kind: EntityKind; normalized: string; value: string; analysis_meta: Record<string, unknown> }[]>`
+      select incident_id, kind, normalized, value, analysis_meta from entities where incident_id in ${sql(ids)}`,
   ]);
   const profiles = new Map<string, Profile>(
     ids.map((id) => [id, { id, signalTypes: new Set(), entities: [] }]),
@@ -62,7 +63,7 @@ async function voiceSimilarity(sql: Db, id: string, others: string[]) {
   return new Map(rows.map((r) => [r.incident_id, r]));
 }
 
-const STRONG_KINDS: EntityKind[] = ["telefono", "cuenta"];
+const STRONG_KINDS: EntityKind[] = ["telefono", "cuenta", "cci", "billetera"];
 const WEAK_KINDS: EntityKind[] = ["nombre"];
 
 function compare(a: Profile, b: Profile, voiceSim: number | null) {
@@ -77,7 +78,10 @@ function compare(a: Profile, b: Profile, voiceSim: number | null) {
 
   let entityScore = 0;
   for (const ea of a.entities) {
-    const match = b.entities.find((eb) => eb.kind === ea.kind && eb.normalized === ea.normalized);
+    const key = entityMatchKeyPe(ea);
+    const match = b.entities.find((eb) => STRONG_KINDS.includes(ea.kind)
+      ? key !== null && entityMatchKeyPe(eb) === key
+      : eb.kind === ea.kind && eb.normalized === ea.normalized);
     if (!match) continue;
     if (STRONG_KINDS.includes(ea.kind)) {
       entityScore = 1;
@@ -148,7 +152,7 @@ export async function refreshLinksFor(incidentId: string, tx?: Db) {
     }
     const reasons = sql.json(result.reasons as unknown as postgres.JSONValue);
     const evidence = sql.json({
-      algorithm: "links-v3", metric: "cosine", voice_threshold: 0.8,
+      algorithm: "links-v4-pe", entity_normalization: "pe-v1", metric: "cosine", voice_threshold: 0.8,
       sample_a: voice ? (a === incidentId ? voice.sample_a : voice.sample_b) : null,
       sample_b: voice ? (a === incidentId ? voice.sample_b : voice.sample_a) : null,
       model_id: voice?.model_id ?? null, model_version: voice?.model_version ?? null,
