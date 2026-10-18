@@ -50,8 +50,8 @@ const text = (max = 2000) => z.string().trim().min(1).max(max);
 const datetime = z.iso.datetime({ offset: true });
 const nullable = <T extends z.ZodType>(s: T) => s.nullable().default(null);
 const metadata = z.record(z.string(), z.unknown());
-const incidentMetadata = metadata.refine((value) => !Object.hasOwn(value, "network_origin") && !Object.hasOwn(value, "findings_batch"), {
-  message: "network_origin y findings_batch se registran mediante sus endpoints específicos, no desde el CRUD.",
+const incidentMetadata = metadata.refine((value) => !["network_origin","findings_batch","report_request","report_generation","report_authorization"].some(key=>Object.hasOwn(value,key)), {
+  message: "La procedencia y el estado del reporte se registran mediante sus endpoints específicos, no desde el CRUD.",
 });
 function withDefaults(shape: Record<string, z.ZodType>, values: Record<string, unknown> = {}) {
   return Object.fromEntries(Object.entries(shape).map(([key, schema]) => [key, schema.default(key in values ? values[key] : null)]));

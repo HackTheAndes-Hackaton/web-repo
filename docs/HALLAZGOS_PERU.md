@@ -1,6 +1,6 @@
 # Hallazgos finales de una llamada: contrato pe-v1
 
-Paso 1 de la integración de Grok. Esta entrega guarda datos puntuales y marca que están listos para elaborar el resumen. No llama a Grok ni genera informes/PDF. Las conversaciones y citas de Comprensión permanecen fuera de este contrato. El audio existente conserva sus rutas, permisos y almacenamiento.
+Paso 1 del flujo de informes. Esta entrega guarda datos puntuales y marca que están listos para elaborar el resumen. No llama a Maritime ni genera informes/PDF. Las conversaciones y citas de Comprensión permanecen fuera de este contrato. El audio existente conserva sus rutas, permisos y almacenamiento.
 
 ## Flujo del backend de voz
 
@@ -8,7 +8,7 @@ Paso 1 de la integración de Grok. Esta entrega guarda datos puntuales y marca q
 2. Si ya se guardó audio de esa sesión, reutilizar el `incident_id` que devuelve su carga: no crear otro incidente. Ese incidente ya tiene `agent_session_id`. El sistema de origen debe registrar la hora real de inicio antes de finalizar; el momento de subida de audio no acredita cuándo comenzó la llamada.
 3. Extraer señales e identificadores del contexto autorizado de la llamada. No copiar las citas de Comprensión a `summary`, `explanation` o metadatos. No inventar una IP ni usar el número del tramo Vapi como número del interlocutor original.
 4. Al cerrar la llamada, entregar el conjunto completo a `POST /api/v1/incidents/{id}/findings`, con `Authorization: Bearer <clave>` y `X-Tiskz-Org: <organización>`. La sesión y `simulated` deben coincidir con el incidente; no se asignan por parecido u horario.
-5. Reintentar la misma entrega con el mismo `run_id`, revisión y contenido. Una corrección usa un nuevo UUID y una revisión mayor. Las revisiones describen entregas del mismo incidente, no el estado de un informe de Grok.
+5. Reintentar la misma entrega con el mismo `run_id`, revisión y contenido. Una corrección usa un nuevo UUID y una revisión mayor. Las revisiones describen entregas del mismo incidente, no el estado de un informe del modelo.
 
 Ejemplo ficticio:
 
@@ -66,8 +66,8 @@ Los clientes no deben enviar `normalized` en esta entrega. El servidor lo calcul
 
 Referencias: [OSIPTEL: servicio móvil de nueve dígitos](https://www.osiptel.gob.pe/media/z35kail1/resol057-2023-gg-instructivo-tecnico.pdf), [Banco de la Nación: CCI de veinte dígitos](https://www.gob.pe/institucion/bn/noticias/1357021-que-es-el-codigo-interbancario-cci-y-por-que-debes-conocerlo).
 
-## Lo que continúa en el paso 2
+## Paso 2: productor y resumen automático con Maritime
 
-Conectar el productor de hallazgos en `agents` a este contrato y generar el resumen automáticamente con Grok al recibir una entrega completa. La selección de citas de Comprensión y la probabilidad de alerta actuales no son por sí solas una extracción de cuentas, teléfonos y modalidad. Se añadirá esa extracción usando el contexto autorizado en memoria, sin guardar la transcripción en el panel.
+El servicio de voz entrega el contexto transitorio del cierre a `POST /api/v1/case-finalizations`. La web comprueba sus permisos, solicita una única generación estructurada al agente Maritime y guarda los hallazgos mediante este contrato. La extracción validada, el resumen, la revisión y el futuro PDF pertenecen a la web. La app móvil no se modifica. Véase [Reportes gestionados por la web](MARITIME_REPORTES.md).
 
-La generación de Grok tendrá estado propio y referencia a `run_id`/hash; sus respuestas no volverán a disparar la extracción de la llamada. El PDF se elaborará a solicitud del analista usando el mismo contenido persistido que alimenta el dashboard.
+`analysis.generation`, opcional para conservar compatibilidad, contiene `provider=maritime`, `status=completed`, `generation_id`, `prompt_version=pe-report-v1`, `model_id`, `usage` y `limitations`. El contrato aún acepta `xai` para registros históricos; la generación nueva usa Maritime. Solo se acepta con `consent_snapshot.report_storage=true` y `report_sharing=true` vigentes. Se guarda en `analysis_meta.report_generation` con referencia al `run_id`. Los estados running/failed se registran sin inventar un resultado final. El PDF se elaborará en una etapa posterior a solicitud del analista usando el contenido persistido del informe; no se implementa en este paso.

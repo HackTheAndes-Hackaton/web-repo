@@ -1,6 +1,6 @@
 import "server-only";
 import { db, type Sql } from "../db";
-import { normalizeEntity } from "../heuristics";
+import { normalizePhonePe } from "../peru";
 import { ApiError } from "./http";
 
 /**
@@ -22,24 +22,23 @@ export interface Reputation {
 }
 
 export function numberKey(value: string) {
-  const digits = value.replace(/\D/g, "");
-  if (digits.length < 6 || digits.length > 15) {
-    throw new ApiError(400, "invalid_number", "El número no es válido.");
-  }
-  return normalizeEntity("telefono", digits);
+  const key = normalizePhonePe(value);
+  if (!key) throw new ApiError(400, "invalid_number", "El número no es válido.");
+  return key;
 }
 
 export async function getReputation(number: string, connection?: Sql): Promise<Reputation> {
   const key = numberKey(number);
+  const local = key.slice(3);
+  const international = `51${local}`;
   const sql = connection ?? (await db());
-  // Mismo criterio de normalización que los datos observados: últimos 9 dígitos en Perú, 10 en otros.
-  const len = key.length;
+  // Comparar números peruanos completos; un número extranjero con igual sufijo no es la misma línea.
   const [stats] = await sql<Omit<Reputation, "number_key" | "mentioned_in">[]>`
     with calls as (
       select verdict, started_at, scam_type, impersonating from incidents
       where simulated = false and sharing_revoked_at is null
         and verdict in ('scam', 'suspicious')
-        and right(regexp_replace(coalesce(caller_e164, caller_number_raw, ''), '\\D', '', 'g'), ${len}) = ${key}
+        and regexp_replace(coalesce(caller_e164, caller_number_raw, ''), '\\D', '', 'g') in (${local},${international})
     )
     select count(*)::int as reports,
            count(*) filter (where verdict = 'scam')::int as scam,
@@ -51,7 +50,7 @@ export async function getReputation(number: string, connection?: Sql): Promise<R
   const [{ mentioned_in }] = await sql<{ mentioned_in: number }[]>`
     select count(distinct e.incident_id)::int as mentioned_in from entities e
     join incidents i on i.id = e.incident_id
-    where e.kind = 'telefono' and e.provenance = 'mencionado' and e.normalized = ${key}
+    where e.kind = 'telefono' and e.provenance = 'mencionado' and e.normalized in (${key},${local})
       and i.simulated = false and i.sharing_revoked_at is null`;
   return { number_key: key, ...stats, mentioned_in };
 }

@@ -4,6 +4,7 @@ import { RESOURCES, type ResourceDef } from "./resources";
 import { audioInput } from "./audio";
 import { callInput, SPEAKERS } from "./calls";
 import { findingsInput } from "./findings";
+import { caseFinalizationInput } from "./case-finalizations";
 import { networkBindingInput, networkOriginSchema } from "../network-origin";
 
 /** Especificación OpenAPI 3.1 generada a partir de las definiciones de recursos. */
@@ -63,11 +64,19 @@ export function buildOpenApi(baseUrl: string) {
     },
   };
   const paths: Record<string, unknown> = {};
+  schemas.CaseFinalization = inputSchema(caseFinalizationInput);
+  paths["/case-finalizations"] = {post:{tags:["Hallazgos"],summary:"Entregar el cierre de un caso ficticio para analizarlo en la web",
+    description:"Solo servidor. La web comprueba sus permisos y solicita la inferencia al agente Maritime. El contexto es transitorio; solo persiste hallazgos, resumen y hashes. request_id evita repetir la generación. Solo simulated=true en esta versión.",
+    parameters:[{name:"X-Tiskz-Org",in:"header",required:true,schema:{type:"string"}}],
+    requestBody:{required:true,content:json(ref("CaseFinalization"))},responses:{"200":{description:"Generación completada o resultado de la entrega anterior."},
+      "202":{description:"La misma entrega sigue en curso; no se vuelve a invocar el modelo."},...errorResponses,
+      "403":{description:"Permiso del reporte retirado o compartición revocada."},"409":{description:"Caso, request_id o generación incompatibles."},
+      "502":{description:"La generación falló; el caso no se considera seguro."},"503":{description:"Maritime no configurado en el servidor web."}}}};
   schemas.FinalizedFindings = inputSchema(findingsInput);
   paths["/incidents/{id}/findings"] = {
     post: {
       tags: ["Hallazgos"], summary: "Entregar hallazgos completos al finalizar una llamada",
-      description: "Contrato pe-v1, solo servidor. Guarda señales, entidades, conclusión y constancia en una transacción. run_id idempotente y revisión creciente. No llama a Grok ni guarda transcripciones. La sesión debe coincidir con agent_session_id del incidente.",
+      description: "Contrato pe-v1, solo servidor. Guarda señales, entidades, conclusión y constancia en una transacción. run_id idempotente y revisión creciente. No llama al modelo ni guarda transcripciones. La sesión debe coincidir con agent_session_id del incidente.",
       parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } },
         { name: "X-Tiskz-Org", in: "header", required: true, schema: { type: "string" } }],
       requestBody: { required: true, content: json(ref("FinalizedFindings")) },

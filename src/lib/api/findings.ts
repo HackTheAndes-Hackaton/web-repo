@@ -30,6 +30,12 @@ export const findingsInput = z.object({
     summary: nullableText(4000), recommendation: nullableText(2000),
     scam_type: nullableText(200), impersonating: nullableText(200),
     model_id: z.string().trim().min(1).max(200),
+    generation: z.object({
+      provider: z.enum(["xai", "maritime"]), status: z.literal("completed"), generation_id: z.uuid(),
+      prompt_version: z.literal("pe-report-v1"), model_id: z.string().trim().min(1).max(200),
+      usage: z.record(z.string(), z.number().int().min(0)),
+      limitations: z.array(z.string().trim().min(1).max(250)).max(8),
+    }).strict().optional(),
   }).strict(),
   signals: z.array(z.object({
     type: z.string().trim().min(1).max(64), explanation: z.string().trim().min(1).max(4000),
@@ -56,10 +62,13 @@ export async function commitFindings(org: string, id: string, value: unknown, ac
   const digest = hash(stable(input));
   const sql = connection ?? await db();
   return sql.begin(async tx => {
-    const [incident] = await tx`select id, org_id, agent_session_id, simulated, sharing_revoked_at, started_at, analysis_meta
+    const [incident] = await tx`select id, org_id, agent_session_id, simulated, sharing_revoked_at, started_at, analysis_meta, consent_snapshot
       from incidents where id=${id} and org_id=${org} for update`;
     if (!incident) throw notFound("Incidente");
     if (incident.sharing_revoked_at) throw new ApiError(403, "sharing_revoked", "La compartición fue revocada.");
+    if (input.analysis.generation && (incident.consent_snapshot?.report_storage !== true || incident.consent_snapshot?.report_sharing !== true)) {
+      throw new ApiError(403, "report_not_authorized", "El reporte requiere autorización de conservación y compartición vigente.");
+    }
     if (incident.agent_session_id !== input.session_id || incident.simulated !== input.simulated) {
       throw new ApiError(409, "source_conflict", "La sesión y el origen deben coincidir con el incidente existente.");
     }
@@ -93,12 +102,13 @@ export async function commitFindings(org: string, id: string, value: unknown, ac
     const { analysis } = input;
     const marker = { schema_version: input.schema_version, run_id: input.run_id, revision: input.revision, ready: true,
       sha256: digest, risk_available: analysis.risk_score !== null, model_id: analysis.model_id };
+    const generation = analysis.generation ? { report_generation: { ...analysis.generation, run_id: input.run_id } } : {};
     await tx`update incidents set status='finalizado', ended_at=${input.ended_at}, analysis_status='completed',
       risk_score=coalesce(${analysis.risk_score},risk_score),
       risk_level=case when ${analysis.risk_score}::int is null then risk_level else ${riskLevelFromScore(analysis.risk_score ?? 0)} end,
       verdict=${analysis.verdict}, risk_reasons=${tx.json(analysis.risk_reasons)}, summary=${analysis.summary},
       recommendation=${analysis.recommendation}, scam_type=${analysis.scam_type}, impersonating=${analysis.impersonating},
-      analysis_meta=coalesce(analysis_meta,'{}'::jsonb) || ${tx.json({ findings_batch: marker })}, updated_at=now() where id=${id}`;
+      analysis_meta=coalesce(analysis_meta,'{}'::jsonb) || ${tx.json({ findings_batch: marker, ...generation })}, updated_at=now() where id=${id}`;
     // Conserva la entrega original, incluida la versión anterior de sus hallazgos.
     await tx`insert into actions(id,incident_id,kind,detail,actor_kind,result,payload)
       values (${`fnd_${hash(`${id}:${input.run_id}`).slice(0, 48)}`},${id},'findings_committed',

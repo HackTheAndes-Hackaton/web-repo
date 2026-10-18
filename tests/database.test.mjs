@@ -16,6 +16,7 @@ import { getVapiCall } from "../src/lib/api/vapi.ts";
 import { buildLinkGroups } from "../src/lib/link-groups.ts";
 import { getIncidentDetail, dashboardData, navCounts } from "../src/lib/repo.ts";
 import { commitFindings, findingsInput } from "../src/lib/api/findings.ts";
+import { finalizeCase } from "../src/lib/api/case-finalizations.ts";
 import { normalizePhonePe, normalizeAmountPe, entityMatchKeyPe } from "../src/lib/peru.ts";
 import { extractEntities } from "../src/lib/heuristics.ts";
 
@@ -71,7 +72,7 @@ test('admite el esquema antiguo con shared_org_id y sin api_keys, speaker ni ext
 test('congela la evidencia revisada y conserva cada decisión con su analista al reabrir y revisar', async () => {
   await database(async (_db,sql) => {
     await fixture(sql);
-    await sql`insert into entities(id,incident_id,kind,value,normalized) values ('e1','a','cuenta','123','123'),('e2','b','cuenta','123','123')`;
+    await sql`insert into entities(id,incident_id,kind,value,normalized) values ('e1','a','telefono','999888777','+51999888777'),('e2','b','telefono','999888777','+51999888777')`;
     await refreshLinksFor('a',sql);
     const [original]=await sql`select * from links`;
     await sql`update links set status='confirmado',reviewed_by='Analista',reviewed_by_id='analyst' where id=${original.id}`;
@@ -463,8 +464,8 @@ test('el detalle muestra el grupo completo con casos indirectos y conserva las r
     await fixture(sql);
     await sql`insert into incidents(id,org_id,simulated,title) values ('c','org',false,'Tercer caso')`;
     await sql`insert into entities(id,incident_id,kind,value,normalized) values
-      ('ga','a','cuenta','111','111'),('gb','b','cuenta','111','111'),
-      ('gb2','b','telefono','222','222'),('gc','c','telefono','222','222')`;
+      ('ga','a','telefono','999888777','+51999888777'),('gb','b','telefono','999888777','+51999888777'),
+      ('gb2','b','telefono','988777666','+51988777666'),('gc','c','telefono','988777666','+51988777666')`;
     await refreshLinksFor('a',sql);await refreshLinksFor('c',sql);
     const [ab]=await sql`update links set status='confirmado',reviewed_by_id='analyst',reviewed_by='Analista' where incident_a='a' and incident_b='b' returning *`;
     globalThis.__sql=sql;globalThis.__dbReady=Promise.resolve();
@@ -571,9 +572,9 @@ test('llamadas: extrae evidencia peruana, la recalcula sin duplicar y alimenta l
       const types=(await sql`select type from signals where incident_id=${saved.incident_id} order by type`).map(r=>r.type);
       for (const t of ['datos_sensibles','dinero','familiaridad','suplantacion']) assert.ok(types.includes(t),`falta ${t}: ${types}`);
       const ents=await sql`select kind,normalized,provenance from entities where incident_id=${saved.incident_id}`;
-      assert.ok(ents.some(e=>e.kind==='telefono'&&e.normalized==='987654321'&&e.provenance==='mencionado'));
-      assert.ok(ents.some(e=>e.kind==='telefono'&&e.normalized==='946189585'&&e.provenance==='mostrado'));
-      assert.ok(ents.some(e=>e.kind==='monto'&&e.normalized==='500'));
+      assert.ok(ents.some(e=>e.kind==='telefono'&&e.normalized==='+51987654321'&&e.provenance==='mencionado'));
+      assert.ok(ents.some(e=>e.kind==='telefono'&&e.normalized==='+51946189585'&&e.provenance==='mostrado'));
+      assert.ok(ents.some(e=>e.kind==='monto'&&e.normalized==='PEN:500.00'));
       assert.ok(ents.some(e=>e.kind==='organizacion'&&e.normalized==='bcp'));
       // Reenviar no duplica la evidencia derivada.
       await put('peru-1',call());
@@ -727,5 +728,64 @@ test('Perú: el motor no une cuentas de bancos distintos aunque el normalized pr
     await sql`update entities set analysis_meta='{"bank":"Banco de Crédito del Perú"}' where id='bank-b'`;
     await refreshLinksFor('a',sql);
     assert.equal((await sql`select count(*)::int n from links`)[0].n,1);
+  });
+});
+
+test('Maritime: el contrato admite ambos proveedores y rechaza un proveedor desconocido',()=>{
+  const input=completedFindings();
+  input.analysis.generation={provider:'maritime',status:'completed',generation_id:input.run_id,prompt_version:'pe-report-v1',model_id:'gpt-4.1-mini',usage:{},limitations:[]};
+  assert.equal(findingsInput.safeParse(input).success,true);
+  input.analysis.generation.provider='xai';assert.equal(findingsInput.safeParse(input).success,true);
+  input.analysis.generation.provider='unknown';assert.equal(findingsInput.safeParse(input).success,false);
+});
+
+test('Maritime: persiste el resumen y su generación con consumo y límites',async()=>{
+  await database(async(_db,sql)=>{
+    await findingsFixture(sql);
+    await sql`update incidents set consent_snapshot=consent_snapshot || '{"report_storage":true,"report_sharing":true}'::jsonb where id='a'`;
+    const input=completedFindings();
+    input.analysis.generation={provider:'maritime',status:'completed',generation_id:input.run_id,prompt_version:'pe-report-v1',model_id:input.analysis.model_id,
+      usage:{prompt_tokens:120,completion_tokens:80,total_tokens:200},limitations:['Identificadores no verificados.']};
+    await commitFindings('org','a',input,'key',sql);
+    const [incident]=await sql`select summary,analysis_meta from incidents where id='a'`;
+    assert.equal(incident.summary,input.analysis.summary);assert.equal(incident.analysis_meta.report_generation.status,'completed');
+    assert.equal(incident.analysis_meta.report_generation.provider,'maritime');
+    assert.equal(incident.analysis_meta.report_generation.usage.total_tokens,200);
+    assert.equal(incident.analysis_meta.report_generation.run_id,input.run_id);
+    assert.equal(incident.analysis_meta.network_origin.binding.client_call_id,'android-a');
+  });
+});
+
+test('Maritime: la autorización de análisis o de audio no sustituye conservar y compartir el reporte',async()=>{
+  await database(async(_db,sql)=>{
+    await findingsFixture(sql);const input=completedFindings();
+    input.analysis.generation={provider:'maritime',status:'completed',generation_id:input.run_id,prompt_version:'pe-report-v1',model_id:input.analysis.model_id,usage:{},limitations:[]};
+    await assert.rejects(commitFindings('org','a',input,'key',sql),error=>error.code==='report_not_authorized');
+    await sql`update incidents set consent_snapshot=consent_snapshot || '{"report_storage":true,"report_sharing":false}'::jsonb where id='a'`;
+    await assert.rejects(commitFindings('org','a',input,'key',sql),error=>error.code==='report_not_authorized');
+    assert.equal((await sql`select count(*)::int n from actions where kind='findings_committed'`)[0].n,0);
+  });
+});
+
+test('Maritime: la web cierra un caso ficticio, publica el resumen y evita generar dos veces',async()=>{
+  await database(async(_db,sql)=>{
+    await fixture(sql);
+    const input={request_id:'99999999-9999-4999-8999-999999999999',session_id:'maritime-demo-a',simulated:true,
+      started_at:'2026-10-17T20:00:00Z',ended_at:'2026-10-17T20:03:00Z',channel:'webrtc',
+      text:'Transferir a la cuenta BCP 191-1234567-0-01.',decision:{alerta:true,probabilidad:0.85}};
+    let generated=0;
+    const generate=async()=>{generated++;return {summary:'Se solicita transferir dinero a una cuenta bancaria mencionada.',
+      recommendation:'Confirmar el pedido con el banco por un canal independiente.',modality:'Solicitud de transferencia',
+      limitations:['La identidad de la persona no está verificada.'],signals:[],entities:[],
+      generation:{provider:'maritime',prompt_version:'pe-report-v1',model_id:'modelo-demo',usage:{total_tokens:18}}};};
+    const first=await finalizeCase('org',input,'test',{connection:sql,generate,allowDemo:true});
+    assert.equal(first.status,'completed');
+    const second=await finalizeCase('org',input,'test',{connection:sql,generate,allowDemo:true});
+    assert.equal(second.duplicate,true);assert.equal(generated,1);
+    const [incident]=await sql`select summary,analysis_status,analysis_meta from incidents where id=${first.incident_id}`;
+    assert.equal(incident.summary,'Se solicita transferir dinero a una cuenta bancaria mencionada.');
+    assert.equal(incident.analysis_status,'completed');
+    assert.equal(incident.analysis_meta.report_generation.provider,'maritime');
+    assert.equal(JSON.stringify(incident).includes(input.text),false);
   });
 });
