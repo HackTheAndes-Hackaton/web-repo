@@ -4,6 +4,8 @@ import { pct } from "@/lib/format";
 import type { RiskLevel } from "@/lib/types";
 
 const RISK_FILL = { bajo: "var(--good)", medio: "var(--warning)", alto: "var(--critical)" };
+/** Desde este tamaño un grupo se dibuja como centro con radios: todas las líneas entre pares no se pueden leer. */
+const HUB_FROM = 7;
 
 /** La forma repite el nivel de riesgo para no depender solo del color. */
 function RiskNode({ x, y, level, size = 8 }: { x: number; y: number; level: RiskLevel; size?: number }) {
@@ -40,6 +42,41 @@ function components(incidents: IncidentSummary[], links: LinkView[]) {
   return groups.sort((a, b) => b.length - a.length);
 }
 
+/** Dato que comparte la mayoría de las conexiones del grupo (número, cuenta, voz…), para rotular el centro. */
+function commonTrait(links: LinkView[]) {
+  const counts = new Map<string, number>();
+  for (const l of links) {
+    const seen = new Set<string>();
+    for (const r of l.reasons) {
+      let label: string | null = null;
+      const origin = /^Mismo número de origen: ([^\s.]+)/.exec(r.detail);
+      const repeated = /^([^:]+) repetid[oa]: (\S+)/.exec(r.detail);
+      if (origin) label = `Mismo número: ${origin[1]}`;
+      else if (repeated) label = `${repeated[1]}: ${repeated[2]}`;
+      else if (r.kind === "voz") label = "Voz parecida";
+      if (label && !seen.has(label)) {
+        seen.add(label);
+        counts.set(label, (counts.get(label) ?? 0) + 1);
+      }
+    }
+  }
+  const [best] = [...counts.entries()].sort((a, b) => b[1] - a[1]);
+  return best && best[1] >= links.length / 2 ? best[0] : null;
+}
+
+interface Placed { inc: IncidentSummary; x: number; y: number; angle: number }
+interface Hub {
+  key: string;
+  x: number;
+  y: number;
+  r: number;
+  count: number;
+  href: string;
+  mix: string;
+  mixY: number;
+  members: Placed[];
+}
+
 /** Una red puede contener N casos. Cada línea conserva la revisión de su propia conexión. */
 export function LinkGraph({
   incidents,
@@ -60,38 +97,67 @@ export function LinkGraph({
   const W = compact ? 400 : 680;
   const cols = compact || groups.length === 1 ? 1 : 2;
   const cellW = W / cols;
-  const maxLabel = cols === 1 && !compact ? 30 : 20;
+  // Con dos columnas las etiquetas se acortan para que no invadan la celda vecina.
+  const maxLabel = cols === 1 && !compact ? 28 : 14;
 
-  // Alto de cada fila según el grupo más grande que contiene.
-  const cellH = (size: number) => (size <= 2 ? 190 : size <= 4 ? 260 : 320);
+  const cellH = (size: number) => (size >= HUB_FROM ? 300 : size <= 2 ? 170 : 250);
   const rows: string[][][] = [];
   for (let i = 0; i < groups.length; i += cols) rows.push(groups.slice(i, i + cols));
   let top = 0;
-  const nodes: { inc: IncidentSummary; x: number; y: number; angle: number }[] = [];
-  const captions: { x: number; y: number; text: string; alias: boolean }[] = [];
+  const nodes: Placed[] = [];
+  const hubs: Hub[] = [];
+  const captions: { x: number; y: number; text: string; sub: string | null; alias: boolean }[] = [];
   rows.forEach((row) => {
     const h = Math.max(...row.map((g) => cellH(g.length)));
     row.forEach((group, col) => {
       const cx = cellW * col + cellW / 2;
-      const cy = top + 22 + (h - 22) / 2;
+      const cy = top + 40 + (h - 40) / 2;
       const ids = group.map((id) => byId.get(id)!).sort((a, b) => a.started_at.localeCompare(b.started_at));
-      const r = group.length <= 2 ? (h - 22) / 2 - 42 : Math.min(cellW / 2 - 70, (h - 22) / 2 - 40);
+      const groupLinks = visible.filter((l) => group.includes(l.incident_a));
+      const alias = ids.map((i) => i.suspect_id && suspects[i.suspect_id]).find(Boolean);
+      const big = group.length >= HUB_FROM;
+      captions.push({
+        x: cx,
+        y: top + 14,
+        text: alias ? `Presunto: ${alias}` : `Grupo de ${group.length} ${group.length === 1 ? "caso" : "casos"}`,
+        sub: big ? commonTrait(groupLinks) ?? `${groupLinks.length} conexiones` : null,
+        alias: Boolean(alias),
+      });
+      if (big) {
+        const R = Math.min(cellW / 2 - 28, (h - 40) / 2 - 26);
+        const members = ids.map((inc, i) => {
+          const angle = (i / ids.length) * Math.PI * 2 - Math.PI / 2;
+          return { inc, x: cx + R * Math.cos(angle), y: cy + R * Math.sin(angle), angle };
+        });
+        const levels = (["alto", "medio", "bajo"] as const)
+          .map((lvl) => [lvl, ids.filter((i) => i.risk_level === lvl).length] as const)
+          .filter(([, n]) => n > 0);
+        hubs.push({
+          key: group[0],
+          x: cx,
+          y: cy,
+          r: 30,
+          count: group.length,
+          // Mismo ancla que buildLinkGroups en la página de Vínculos.
+          href: `/panel/vinculos#grupo-${[...group].sort()[0]}`,
+          mix: levels.map(([lvl, n]) => `${n} ${lvl}`).join(" · "),
+          mixY: cy + R + 22,
+          members,
+        });
+        return;
+      }
+      // Radio que deja sitio a la etiqueta (≈6 px por carácter) dentro de la celda.
+      const room = cellW / 2 - 20 - maxLabel * 6;
+      const r = group.length <= 2 ? (h - 40) / 2 - 34 : Math.max(40, Math.min(room, (h - 40) / 2 - 36));
       ids.forEach((inc, i) => {
         // Las parejas van en vertical para que las etiquetas no se salgan de su celda.
         const angle = (i / ids.length) * Math.PI * 2 - Math.PI / 2;
         nodes.push({ inc, x: cx + r * Math.cos(angle), y: cy + r * Math.sin(angle), angle });
       });
-      const alias = ids.map((i) => i.suspect_id && suspects[i.suspect_id]).find(Boolean);
-      captions.push({
-        x: cx,
-        y: top + 14,
-        text: alias ? `Presunto: ${alias}` : `Grupo de ${group.length} ${group.length === 1 ? "caso" : "casos"}`,
-        alias: Boolean(alias),
-      });
     });
-    top += h + 36; // Separa la etiqueta inferior de un grupo del título del siguiente.
+    top += h + 28; // Separa la etiqueta inferior de un grupo del título del siguiente.
   });
-  const H = Math.max(top - 36, 120);
+  const H = Math.max(top - 28, 120);
   const pos = new Map(nodes.map((n) => [n.inc.id, n]));
 
   return (
@@ -101,8 +167,33 @@ export function LinkGraph({
           <text key={i} x={c.x} y={c.y} textAnchor="middle" fontSize={12} fontWeight={600}
             fill={c.alias ? "var(--critical-ink)" : "var(--muted)"}>
             {c.text}
+            {c.sub && <tspan x={c.x} dy={15} fontSize={11} fontWeight={500} fill="var(--fg-2)">{c.sub}</tspan>}
           </text>
         ))}
+
+        {hubs.map((hub) => (
+          <g key={hub.key}>
+            {hub.members.map((m) => (
+              <line key={m.inc.id} x1={hub.x + Math.cos(m.angle) * hub.r} y1={hub.y + Math.sin(m.angle) * hub.r}
+                x2={m.x} y2={m.y} stroke="var(--brand-3)" strokeWidth={1.25} strokeOpacity={0.7} />
+            ))}
+            <a href={hub.href}>
+              <title>{`Grupo de ${hub.count} casos · ver el grupo y su evidencia`}</title>
+              <circle cx={hub.x} cy={hub.y} r={hub.r} fill="var(--accent-wash)" stroke="var(--accent)" strokeWidth={2} />
+              <text x={hub.x} y={hub.y + 2} textAnchor="middle" fontSize={18} fontWeight={700} fill="var(--accent-ink)">{hub.count}</text>
+              <text x={hub.x} y={hub.y + 15} textAnchor="middle" fontSize={9} fill="var(--accent-ink)">casos</text>
+            </a>
+            {hub.members.map((m) => (
+              <a key={m.inc.id} href={`/panel/casos/${m.inc.id}`}>
+                <title>{`Caso ${caseCode(m.inc.id)} · ${m.inc.title} · riesgo ${m.inc.risk_level} (${m.inc.risk_score})`}</title>
+                <circle cx={m.x} cy={m.y} r={10} fill="transparent" />
+                <RiskNode x={m.x} y={m.y} level={m.inc.risk_level} size={6} />
+              </a>
+            ))}
+            <text x={hub.x} y={hub.mixY} textAnchor="middle" fontSize={11} fill="var(--fg-2)">Riesgo: {hub.mix}</text>
+          </g>
+        ))}
+
         {visible.map((l) => {
           const a = pos.get(l.incident_a);
           const b = pos.get(l.incident_b);
@@ -167,6 +258,14 @@ export function LinkGraph({
             Riesgo {lvl}
           </span>
         ))}
+        {hubs.length > 0 && (
+          <span className="flex items-center gap-1.5">
+            <svg width="14" height="14" viewBox="-7 -7 14 14" aria-hidden>
+              <circle r={6} fill="var(--accent-wash)" stroke="var(--accent)" strokeWidth={1.5} />
+            </svg>
+            Grupo grande ({HUB_FROM}+ casos): el centro resume lo que comparten; cada punto es un caso
+          </span>
+        )}
       </figcaption>
     </figure>
   );
