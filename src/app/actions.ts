@@ -9,6 +9,7 @@ import { getSession, SESSION_COOKIE } from "@/lib/session";
 import { inspectNetworkOrigin } from "@/lib/api/network-origin";
 import { ApiError } from "@/lib/api/http";
 import { assignCases, createSuspect, SuspectError, unassignCase, updateSuspect } from "@/lib/suspects";
+import { reviewVoice, VoiceReviewError } from "@/lib/voices";
 
 export async function selectDemoUser(formData: FormData) {
   const userId = String(formData.get("userId") ?? "");
@@ -91,6 +92,17 @@ export async function updateSuspectAction(_prev: SuspectFormState, formData: For
 export async function unassignCaseAction(incidentId: string) {
   const session = await analystSession();
   await unassignCase(session, incidentId);
+  refresh();
+}
+
+/** Confirma o descarta la voz de un grupo de llamadas (sus huellas del llamante). */
+export async function reviewVoiceAction(decision: "confirmar" | "descartar", formData: FormData) {
+  const session = await analystSession();
+  try {
+    await reviewVoice(session, formData.getAll("incidentId").map(String), decision);
+  } catch (error) {
+    if (!(error instanceof VoiceReviewError)) throw error;
+  }
   refresh();
 }
 
