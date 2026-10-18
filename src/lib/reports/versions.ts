@@ -21,7 +21,8 @@ type LinkRow = {
   id:string; incident_a:string; incident_b:string; status:LinkStatus; score:number;
   voice_sim:number|null; content_sim:number; reasons:LinkReason[];
   evidence_snapshot:Record<string,unknown>; evidence_version:number;
-  reviewed_by:string|null; reviewed_at:string|null; reviewed_evidence:Record<string,unknown>|null;
+  reviewed_by:string|null; reviewed_at:string|null; reviewed_evidence_version:number|null;
+  reviewed_evidence:Record<string,unknown>|null; note:string|null;
 };
 type SignalRow = {incident_id:string;type:string;evidence:string;explanation:string;confidence:number;source:string};
 type EntityRow = {incident_id:string;kind:string;value:string;normalized:string;provenance:string};
@@ -90,7 +91,8 @@ export async function createReportVersion(input:{orgId:string;analystId:string;c
     if(cases.length!==caseIds.length||cases.some(row=>!reportReady(row)))
       throw new ReportVersionError("cases_unavailable","Todos los casos deben ser ficticios, finalizados, autorizados y tener un resumen Maritime completo.");
     const links=await tx<LinkRow[]>`select l.id,l.incident_a,l.incident_b,l.status,l.score,l.voice_sim,l.content_sim,l.reasons,
-      l.evidence_snapshot,l.evidence_version,l.reviewed_by,l.reviewed_at,l.reviewed_evidence
+      l.evidence_snapshot,l.evidence_version,l.reviewed_by,l.reviewed_at,
+      l.reviewed_evidence_version,l.reviewed_evidence,l.note
       from links l join incidents a on a.id=l.incident_a join incidents b on b.id=l.incident_b
       where l.id=any(${linkIds}::text[]) and a.org_id=${input.orgId} and b.org_id=${input.orgId}`;
     if(links.length!==linkIds.length||links.some(link=>link.status==="descartado"||
@@ -99,6 +101,24 @@ export async function createReportVersion(input:{orgId:string;analystId:string;c
     const groups=buildLinkGroups(cases,links);
     if(groups.length!==1||groups[0].incidentIds.length!==caseIds.length)
       throw new ReportVersionError("disconnected_selection","Los vínculos elegidos deben conectar todos los casos seleccionados.");
+    const eligibleCases=await tx<Pick<CaseRow,"id"|"org_id"|"simulated"|"sharing_revoked_at">[]>`
+      select id,org_id,simulated,sharing_revoked_at from incidents
+      where org_id=${input.orgId} and simulated is true and status='finalizado'
+        and sharing_revoked_at is null and consent_snapshot->>'report_storage'='true'
+        and consent_snapshot->>'report_sharing'='true'
+        and analysis_meta->'report_generation'->>'status'='completed'
+        and analysis_meta->'report_generation'->>'provider'='maritime'
+        and nullif(trim(summary),'') is not null`;
+    const eligibleIds=eligibleCases.map(row=>row.id);
+    const eligibleLinks=await tx<Pick<LinkRow,"id"|"incident_a"|"incident_b"|"status">[]>`
+      select id,incident_a,incident_b,status from links
+      where incident_a=any(${eligibleIds}::text[]) and incident_b=any(${eligibleIds}::text[])
+        and status<>'descartado'`;
+    const completeGroup=buildLinkGroups(eligibleCases,eligibleLinks)
+      .find(group=>group.incidentIds.includes(caseIds[0]));
+    if(!completeGroup||completeGroup.incidentIds.join(',')!==caseIds.join(',')||
+      completeGroup.links.map(link=>link.id).sort().join(',')!==linkIds.join(','))
+      throw new ReportVersionError("incomplete_group","El informe debe incluir todos los casos y vínculos vigentes del conjunto identificado.");
     const [signals,entities]=await Promise.all([
       tx<SignalRow[]>`select incident_id,type,evidence,explanation,confidence,source from signals
         where incident_id=any(${caseIds}::text[]) order by incident_id,created_at,id`,
@@ -125,9 +145,11 @@ export async function createReportVersion(input:{orgId:string;analystId:string;c
       reportCases.map(row=>`${row.title}: ${row.summary}`).join(" ").slice(0,5000);
     const seriesId=input.seriesId??newId("rep");
     await tx`select pg_advisory_xact_lock(hashtext(${input.orgId}),hashtext(${seriesId}))`;
-    const previous=await tx<{version:number}[]>`select version from report_versions
+    const previous=await tx<{version:number;snapshot:ReportSnapshot}[]>`select version,snapshot from report_versions
       where org_id=${input.orgId} and series_id=${seriesId} order by version desc limit 1`;
     if(input.seriesId&&!previous.length) throw new ReportVersionError("series_unavailable","No existe esta serie de informes en la organización.");
+    if(previous.length&&previous[0].snapshot.selected_case_ids.join(',')!==caseIds.join(','))
+      throw new ReportVersionError("series_group_mismatch","La serie pertenece a otro conjunto de casos.");
     const version=(previous[0]?.version??0)+1;
     const contentSha256=crypto.createHash("sha256").update(stable({title,summary,snapshot})).digest("hex");
     const [saved]=await tx<ReportVersion[]>`insert into report_versions

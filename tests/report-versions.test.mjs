@@ -56,11 +56,14 @@ test('versiones conservan selección, hallazgos y revisión anteriores aunque ca
     assert.equal(first.snapshot.links[0].evidence_snapshot.ai_explanation.behavior_similarity,'similar');
     assert.equal(first.content_sha256,crypto.createHash('sha256').update(stable({title:first.title,summary:first.summary,snapshot:first.snapshot})).digest('hex'));
     await sql`update incidents set summary='Resumen corregido.' where id='a'`;
-    await sql`update links set status='confirmado',reviewed_by='Analista',reviewed_by_id='analyst' where id='ab'`;
+    await sql`update links set status='confirmado',reviewed_by='Analista',reviewed_by_id='analyst',
+      note='Coincidencia verificada en los resúmenes.' where id='ab'`;
     const second=await createReportVersion({...input,seriesId:first.series_id},sql);
     assert.equal(second.version,2);
     assert.equal(second.snapshot.cases[0].summary,'Resumen corregido.');
     assert.equal(second.snapshot.links[0].status,'confirmado');
+    assert.equal(second.snapshot.links[0].note,'Coincidencia verificada en los resúmenes.');
+    assert.equal(second.snapshot.links[0].reviewed_evidence_version,second.snapshot.links[0].evidence_version);
     const historical=await getReportVersion('org',first.id,sql);
     assert.equal(historical.snapshot.cases[0].summary,'Se solicita transferir dinero.');
     assert.equal(historical.snapshot.links[0].status,'pendiente');
@@ -79,5 +82,25 @@ test('rechaza selección sin vínculo, analista ajeno y permisos retirados; ocul
     assert.equal(await getReportVersion('org',saved.id,sql),null);
     assert.deepEqual(await listLatestReportVersions('org',sql),[]);
     await assert.rejects(createReportVersion({...input,seriesId:saved.series_id},sql),error=>error instanceof ReportVersionError&&error.code==='cases_unavailable');
+  });
+});
+
+test('el informe incluye el conjunto identificado completo, sin omitir casos ni vínculos',async()=>{
+  await database(async sql=>{
+    await fixture(sql);
+    await sql`insert into incidents(id,org_id,title,status,simulated,summary,analysis_meta,consent_snapshot)
+      select 'c',org_id,'Tercer caso',status,simulated,'Otra solicitud de dinero.',analysis_meta,consent_snapshot
+      from incidents where id='a'`;
+    await sql`insert into links(id,incident_a,incident_b,score,reasons)
+      values ('bc','b','c',0.7,'[{"kind":"dato_compartido","detail":"Cuenta repetida"}]')`;
+    await assert.rejects(createReportVersion(input,sql),
+      error=>error instanceof ReportVersionError&&error.code==='incomplete_group');
+    await sql`insert into links(id,incident_a,incident_b,score,reasons)
+      values ('ac','a','c',0.6,'[{"kind":"dato_compartido","detail":"Otro dato repetido"}]')`;
+    await assert.rejects(createReportVersion({...input,caseIds:['a','b','c'],linkIds:['ab','bc']},sql),
+      error=>error instanceof ReportVersionError&&error.code==='incomplete_group');
+    const complete=await createReportVersion({...input,caseIds:['a','b','c'],linkIds:['ab','bc','ac']},sql);
+    assert.deepEqual(complete.snapshot.selected_case_ids,['a','b','c']);
+    assert.deepEqual(complete.snapshot.selected_link_ids,['ab','ac','bc']);
   });
 });

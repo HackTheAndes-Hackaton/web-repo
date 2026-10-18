@@ -24,7 +24,7 @@ export default async function ReportDetail({params}:PageProps<'/panel/informes/[
       <p className="whitespace-pre-line text-sm leading-relaxed">{report.summary}</p>
       <p className="mt-3 text-xs text-muted">Contenido fijado el {fmtDateTime(report.snapshot.captured_at)} · SHA-256 {report.content_sha256}</p>
     </Card>
-    <h2 className="mb-4 mt-8 text-lg font-semibold">Casos seleccionados</h2>
+    <h2 className="mb-4 mt-8 text-lg font-semibold">Casos del conjunto identificado</h2>
     <div className="space-y-4">{report.snapshot.cases.map(item=><Card key={item.id} title={`${caseCode(item.id)} · ${item.title}`}>
       <p className="text-xs text-muted">{fmtDateTime(item.started_at)} · Riesgo {item.risk_level} · {item.channel}</p>
       <p className="mt-3 text-sm">{item.summary}</p>
@@ -38,7 +38,7 @@ export default async function ReportDetail({params}:PageProps<'/panel/informes/[
       </div>}
       <Link href={`/panel/casos/${item.id}`} className="mt-4 inline-block text-sm font-semibold text-accent-ink hover:underline">Ver caso actual</Link>
     </Card>)}</div>
-    <h2 className="mb-4 mt-8 text-lg font-semibold">Vínculos seleccionados</h2>
+    <h2 className="mb-4 mt-8 text-lg font-semibold">Vínculos del conjunto identificado</h2>
     <div className="space-y-4">{report.snapshot.links.map(link=><Card key={link.id} title={`${caseCode(link.incident_a)} ↔ ${caseCode(link.incident_b)}`}>
       <p className="text-sm">Estado al guardar: <strong>{link.status}</strong> · Puntuación {Math.round(link.score*100)}% · Evidencia v{link.evidence_version}</p>
       <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-fg-2">{link.reasons.map((reason,index)=><li key={index}>{reason.detail}</li>)}</ul>

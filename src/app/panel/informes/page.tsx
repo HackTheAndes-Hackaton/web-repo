@@ -26,15 +26,16 @@ export default async function ReportsPage({searchParams}:{searchParams:Promise<{
     <PageHeader crumbs={[{href:'/panel',label:'Análisis'},{href:'/panel/informes',label:'Informes'}]}
       title="Informes de investigación" description="Versiones guardadas por analistas a partir de casos ficticios y hallazgos de Maritime." />
     {error&&<p role="alert" className="mb-5 rounded-2xl bg-warning-wash p-4 text-sm text-warning-ink">
-      No se guardó el informe. Elige casos ficticios autorizados y vínculos que los conecten.
+      No se guardó el informe. El conjunto debe conservar todos sus casos ficticios autorizados y vínculos vigentes.
     </p>}
     <Card title="Preparar informe" className="mb-6">
-      <p className="text-sm text-fg-2">Elige un grupo de casos autorizados. El informe fija los hallazgos y decisiones actuales para revisión humana.</p>
+      <p className="text-sm text-fg-2">Prepara una versión para cada conjunto identificado. El informe fija todos sus casos, coincidencias y decisiones actuales para revisión humana.</p>
       {groups.length?<div className="mt-4 space-y-4">{groups.map((group,index)=><div key={group.anchor} className="rounded-2xl border border-line p-4">
         <h2 className="text-sm font-semibold">Grupo {index+1} · {group.incidentIds.length} casos · {group.links.length} vínculos</h2>
         <ReportSelectionForm cases={group.incidentIds.map(id=>({id,title:byId.get(id)!.title}))}
           links={group.links.map(link=>({id:link.id,a:link.incident_a,b:link.incident_b,title:link.reasons.map(reason=>reason.detail).join(' · ')||'Conexión propuesta'}))}
-          series={reports} />
+          series={reports.filter(report=>report.snapshot.selected_case_ids.length===group.incidentIds.length&&
+            report.snapshot.selected_case_ids.every(id=>group.incidentIds.includes(id)))} />
       </div>)}</div>:<Empty>Aún no hay un grupo de dos casos ficticios finalizados y autorizados para el informe.</Empty>}
     </Card>
     <Card title="Informes guardados">
