@@ -1,4 +1,4 @@
-# PhoneWard — panel y API
+# Tiskz — panel y API
 
 Este proyecto tiene dos partes:
 
@@ -62,13 +62,9 @@ En Vercel el panel se actualiza cada 15 s en lugar de usar SSE, porque cada func
 la base solo se guarda su hash. Se envía de cualquiera de estas dos formas:
 
 ```
-Authorization: Bearer phw_...
-X-API-Key: phw_...
+Authorization: Bearer tkz_...
+X-API-Key: tkz_...
 ```
-
-**Cambio de nombre (antes Tiskz).** Las claves `tkz_…` ya emitidas siguen funcionando, y el encabezado `X-Tiskz-Org` se
-acepta igual que `X-PhoneWard-Org`. Las variables `TISKZ_REPORT_MODEL` y `TISKZ_DEMO_REPORTS_ENABLED` se leen si no
-existen las nuevas `PHONEWARD_*`. Conviene migrar a los nombres nuevos cuando se pueda.
 
 **Especificación.** `GET /api/v1/openapi.json` (OpenAPI 3.1, importable en Postman o Swagger) y `GET /api/v1` son
 públicas.

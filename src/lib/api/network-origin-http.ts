@@ -1,12 +1,12 @@
 import "server-only";
 import { bindNetworkOrigin, getNetworkOrigin, inspectNetworkOrigin } from "./network-origin";
-import { ApiError, ok, readJson, withApi, orgHeader } from "./http";
+import { ApiError, ok, readJson, withApi } from "./http";
 
 type Ctx = { params: Promise<{ id: string }> };
 
 function organization(request: Request) {
-  const org = orgHeader(request);
-  if (!org || !/^[A-Za-z0-9_.:-]{1,64}$/.test(org)) throw new ApiError(400, "organization_required", "Indica X-PhoneWard-Org.");
+  const org = request.headers.get("X-Tiskz-Org");
+  if (!org || !/^[A-Za-z0-9_.:-]{1,64}$/.test(org)) throw new ApiError(400, "organization_required", "Indica X-Tiskz-Org.");
   return org;
 }
 

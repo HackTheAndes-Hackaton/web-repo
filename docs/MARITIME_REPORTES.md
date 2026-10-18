@@ -9,16 +9,16 @@ En `web-repo/.env.local` o en las variables privadas del despliegue web:
 ```dotenv
 MARITIME_REPORT_AGENT_ID=
 MARITIME_REPORT_API_KEY=
-PHONEWARD_REPORT_MODEL=gpt-4.1-mini
+TISKZ_REPORT_MODEL=gpt-4.1-mini
 # Exclusivamente pruebas ficticias del equipo; false por defecto.
-PHONEWARD_DEMO_REPORTS_ENABLED=true
+TISKZ_DEMO_REPORTS_ENABLED=true
 ```
 
-El ID debe corresponder al agente de informes privado. La clave debe poder invocarlo. El modelo se configura dentro de Maritime; `PHONEWARD_REPORT_MODEL` identifica el modelo previsto mientras la solicitud está en curso y la respuesta guarda el identificador informado por el agente. No usar `NEXT_PUBLIC_` ni distribuir credenciales a la APK. La configuración de demo permite crear automáticamente un caso solo con `simulated=true`; no habilita casos reales ni anula revocaciones o permisos expresamente retirados.
+El ID debe corresponder al agente de informes privado. La clave debe poder invocarlo. El modelo se configura dentro de Maritime; `TISKZ_REPORT_MODEL` identifica el modelo previsto mientras la solicitud está en curso y la respuesta guarda el identificador informado por el agente. No usar `NEXT_PUBLIC_` ni distribuir credenciales a la APK. La configuración de demo permite crear automáticamente un caso solo con `simulated=true`; no habilita casos reales ni anula revocaciones o permisos expresamente retirados.
 
 ## Recepción y generación
 
-`POST /api/v1/case-finalizations` requiere API key y `X-PhoneWard-Org`. Acepta `request_id` UUID, `session_id`, `simulated:true`, inicio/final ISO, `channel` (`webrtc` o `telefono_vapi`), `text` de hasta 12000 caracteres y `decision` opcional con `alerta`/`probabilidad`. El texto se usa de forma transitoria: no se almacena como conversación, historial ni cita.
+`POST /api/v1/case-finalizations` requiere API key y `X-Tiskz-Org`. Acepta `request_id` UUID, `session_id`, `simulated:true`, inicio/final ISO, `channel` (`webrtc` o `telefono_vapi`), `text` de hasta 12000 caracteres y `decision` opcional con `alerta`/`probabilidad`. El texto se usa de forma transitoria: no se almacena como conversación, historial ni cita.
 
 La web reutiliza el ID determinista de la sesión, comprueba organización, sesión, origen, tiempos y permisos, registra el hash de la petición y reclama la generación antes de llamar a Maritime. Reintentar la misma entrega no vuelve a consumir tokens; una entrega simultánea recibe `202` mientras la primera sigue en curso. Reutilizar el UUID con otro contexto se rechaza.
 

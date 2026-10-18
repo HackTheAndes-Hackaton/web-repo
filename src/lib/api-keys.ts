@@ -4,7 +4,7 @@ import { db, newId, nowIso } from "./db";
 
 /**
  * Claves de API para los servicios que alimentan el panel (servidor de
- * llamadas, servicio de IA). Formato: phw_<48 hex>. Solo se guarda el hash.
+ * llamadas, servicio de IA). Formato: tkz_<48 hex>. Solo se guarda el hash.
  */
 
 export interface ApiKey {
@@ -19,7 +19,7 @@ export interface ApiKey {
 const hash = (key: string) => crypto.createHash("sha256").update(key).digest("hex");
 
 export async function createApiKey(name: string) {
-  const key = `phw_${crypto.randomBytes(24).toString("hex")}`;
+  const key = `tkz_${crypto.randomBytes(24).toString("hex")}`;
   const sql = await db();
   const [row] = await sql<ApiKey[]>`
     insert into api_keys (id, name, prefix, key_hash, created_at)
@@ -47,8 +47,8 @@ const lastTouch = new Map<string, number>();
 
 /** Devuelve la clave válida que corresponde al texto recibido, o null. */
 export async function verifyApiKey(presented: string | null) {
-  // tkz_ (Tiskz) y cen_ son prefijos de claves creadas antes de los cambios de nombre: siguen valiendo.
-  if (!presented || !/^(phw|tkz|cen)_/.test(presented)) return null;
+  // cen_ es el prefijo de las claves creadas antes del cambio de nombre.
+  if (!presented || !/^(tkz|cen)_/.test(presented)) return null;
   const sql = await db();
   const [row] = await sql<ApiKey[]>`
     select id, name, prefix, created_at, last_used_at, revoked_at from api_keys
