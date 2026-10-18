@@ -545,3 +545,45 @@ test('llamadas: guarda la conversación, reemplaza al reenviar, aísla organizac
     } finally {delete globalThis.__sql;delete globalThis.__dbReady;}
   });
 });
+
+test('llamadas: extrae evidencia peruana, la recalcula sin duplicar y alimenta la reputación del número', async () => {
+  const {putCallHandler,getReputationHandler}=await import('../src/lib/api/calls-http.ts');
+  const {createHash}=await import('node:crypto');
+  await database(async (_db,sql) => {
+    await fixture(sql);
+    globalThis.__sql=sql; globalThis.__dbReady=Promise.resolve();
+    try {
+      const key='tkz_synthetic_reputation';
+      await sql`insert into api_keys(id,name,prefix,key_hash) values ('rep-key','Prueba reputación','tkz_synthetic',${createHash('sha256').update(key).digest('hex')})`;
+      const headers={'Authorization':`Bearer ${key}`,'X-Tiskz-Org':'org','Content-Type':'application/json'};
+      const call=(over={})=>({caller_e164:'+51946189585',started_at:'2026-10-17T20:00:00Z',ended_at:'2026-10-17T20:02:00Z',verdict:'scam',risk_score:90,
+        scam_type:'Suplantación bancaria',impersonating:'BCP',transcript:[
+          {id:'a',speaker:'agent',text:'¿Quién llama y cuál es el motivo?'},
+          {id:'b',speaker:'caller',text:'¡Hola tío! Le hablo del BCP, del área de seguridad.'},
+          {id:'c',speaker:'caller',text:'Para anular la compra dígame el código que le llegó por SMS y yapee S/ 500 al 987 654 321.'},
+          {id:'d',speaker:'user',text:'No le daré ningún código.'},
+        ],...over});
+      const put=(id,body,org='org')=>putCallHandler(new Request(`https://panel.test/api/v1/calls/${id}`,{method:'PUT',headers:{...headers,'X-Tiskz-Org':org},body:JSON.stringify(body)}),{params:Promise.resolve({callId:id})});
+      const saved=(await (await put('peru-1',call())).json()).data;
+      const types=(await sql`select type from signals where incident_id=${saved.incident_id} order by type`).map(r=>r.type);
+      for (const t of ['datos_sensibles','dinero','familiaridad','suplantacion']) assert.ok(types.includes(t),`falta ${t}: ${types}`);
+      const ents=await sql`select kind,normalized,provenance from entities where incident_id=${saved.incident_id}`;
+      assert.ok(ents.some(e=>e.kind==='telefono'&&e.normalized==='987654321'&&e.provenance==='mencionado'));
+      assert.ok(ents.some(e=>e.kind==='telefono'&&e.normalized==='946189585'&&e.provenance==='mostrado'));
+      assert.ok(ents.some(e=>e.kind==='monto'&&e.normalized==='500'));
+      assert.ok(ents.some(e=>e.kind==='organizacion'&&e.normalized==='bcp'));
+      // Reenviar no duplica la evidencia derivada.
+      await put('peru-1',call());
+      assert.equal((await sql`select count(*)::int n from signals where incident_id=${saved.incident_id}`)[0].n,types.length);
+      // Otra víctima de otra organización con el mismo número: la reputación suma ambas, sin datos personales.
+      await put('peru-2',call({caller_e164:null,caller_number_raw:'946 189 585',verdict:'suspicious',risk_score:55}),'other');
+      await put('demo',call({simulated:true}));
+      const rep=async(n)=>(await (await getReputationHandler(new Request(`https://panel.test/api/v1/reputation/${n}`,{headers}),{params:Promise.resolve({number:n})})).json()).data;
+      const r=await rep('+51946189585');
+      assert.equal(r.reports,2);assert.equal(r.scam,1);assert.equal(r.suspicious,1);assert.equal(r.impersonating,'BCP');
+      assert.deepEqual(Object.keys(r).sort(),['impersonating','last_reported_at','mentioned_in','number_key','reports','scam','scam_type','suspicious']);
+      assert.equal((await rep('987654321')).mentioned_in,2);
+      assert.equal((await rep('900000000')).reports,0);
+    } finally {delete globalThis.__sql;delete globalThis.__dbReady;}
+  });
+});

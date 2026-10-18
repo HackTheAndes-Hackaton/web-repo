@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { TriangleAlert } from "lucide-react";
 import { pct } from "@/lib/format";
 import {
@@ -53,6 +54,69 @@ export function Conversation({ lines }: { lines: ConversationLine[] }) {
         );
       })}
     </ol>
+  );
+}
+
+function SheetRow({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div className="grid grid-cols-[8.5rem_1fr] gap-3 py-2 text-sm">
+      <dt className="text-muted">{label}</dt>
+      <dd className="min-w-0 font-medium text-fg">{children}</dd>
+    </div>
+  );
+}
+
+/**
+ * Lo que la PNP pidió para actuar rápido: número, fecha, cuentas o números de Yape,
+ * montos, a quién suplantó y las frases clave. Se imprime con "Imprimir / PDF".
+ */
+export function ComplaintSheet({
+  caller,
+  startedAt,
+  duration,
+  impersonating,
+  entities,
+  keyLines,
+}: {
+  caller: string | null;
+  startedAt: string;
+  duration: string;
+  impersonating: string | null;
+  entities: Entity[];
+  keyLines: string[];
+}) {
+  const mentioned = entities.filter((e) => e.provenance === "mencionado");
+  const accounts = mentioned.filter((e) => e.kind === "cuenta" || e.kind === "telefono");
+  const amounts = mentioned.filter((e) => e.kind === "monto");
+  const none = <span className="font-normal text-muted">No mencionado</span>;
+  return (
+    <div>
+      <dl className="divide-y divide-line">
+        <SheetRow label="Número que llamó"><span className="tabular">{caller ?? "Oculto"}</span></SheetRow>
+        <SheetRow label="Fecha y hora">{startedAt}</SheetRow>
+        <SheetRow label="Duración">{duration}</SheetRow>
+        <SheetRow label="Se hizo pasar por">{impersonating ?? none}</SheetRow>
+        <SheetRow label="Cuentas / Yape">
+          {accounts.length ? (
+            <ul className="space-y-0.5">{accounts.map((e) => <li key={e.id} className="tabular">{e.value}</li>)}</ul>
+          ) : none}
+        </SheetRow>
+        <SheetRow label="Montos">{amounts.length ? amounts.map((e) => e.value).join(", ") : none}</SheetRow>
+      </dl>
+      {keyLines.length > 0 && (
+        <div className="mt-3">
+          <div className="mb-1.5 text-xs font-semibold uppercase tracking-wider text-muted">Frases clave</div>
+          <ul className="space-y-1.5">
+            {keyLines.map((line) => (
+              <li key={line} className="rounded-xl bg-critical-wash px-3 py-2 text-sm text-critical-ink">“{line}”</li>
+            ))}
+          </ul>
+        </div>
+      )}
+      <p className="mt-3 text-xs text-muted">
+        Datos tal como se dijeron en la llamada: pueden ser falsos. Sirven para preparar la denuncia, no la reemplazan.
+      </p>
+    </div>
   );
 }
 

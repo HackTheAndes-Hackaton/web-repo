@@ -15,6 +15,8 @@ export const SIGNAL_TYPES = [
   "amenaza",
   "suplantacion",
   "aislamiento",
+  "premio",
+  "familiaridad",
 ] as const;
 export type SignalType = (typeof SIGNAL_TYPES)[number];
 
@@ -26,6 +28,8 @@ export const SIGNAL_LABELS: Record<string, string> = {
   amenaza: "Amenaza o intimidación",
   suplantacion: "Posible suplantación de identidad",
   aislamiento: "Intento de aislar o mantener en línea",
+  premio: "Premio, sorteo o bono falso",
+  familiaridad: "Saludo eufórico o familiaridad forzada",
 };
 
 export const ENTITY_KINDS = ["telefono", "cuenta", "monto", "nombre", "organizacion", "lugar"] as const;
@@ -119,6 +123,7 @@ export interface Signal {
   id: string;
   incident_id: string;
   type: string;
+  evidence: string;
   explanation: string;
   confidence: number;
   source: string;

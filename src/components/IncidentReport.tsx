@@ -4,7 +4,7 @@ import { Clock, FolderOpen, Hash, Mic, PhoneIncoming, PhoneOutgoing, ShieldAlert
 import { fmtDateTime, fmtDuration, fmtPhone, pct } from "@/lib/format";
 import { caseCode, type IncidentDetail } from "@/lib/repo";
 import { channelLabel, scamTypeLabel } from "@/lib/types";
-import { Conversation, EntityTable, RiskMeter, SignalList } from "./incident-parts";
+import { ComplaintSheet, Conversation, EntityTable, RiskMeter, SignalList } from "./incident-parts";
 import { LinkReasons } from "./links-ui";
 import { PrintButton } from "./PrintButton";
 import { NetworkOriginPanel } from "./NetworkOriginPanel";
@@ -199,6 +199,23 @@ export function IncidentReport({ detail, tab = "ia" }: { detail: IncidentDetail;
         <aside className="space-y-0 lg:border-l lg:border-line lg:pl-6">
           <SideSection>
             <RiskMeter score={incident.risk_score} level={incident.risk_level} />
+          </SideSection>
+
+          <SideSection title="Para la denuncia (PNP)">
+            <ComplaintSheet
+              caller={number}
+              startedAt={fmtDateTime(incident.started_at)}
+              duration={fmtDuration(incident.started_at, incident.ended_at)}
+              impersonating={incident.impersonating}
+              entities={entities}
+              keyLines={[
+                ...transcript.filter((l) => l.flagged && l.speaker === "caller").map((l) => l.text),
+                ...signals.map((s) => s.evidence).filter(Boolean),
+              ]
+                // Sin repetir: se omite un fragmento si ya aparece dentro de una frase elegida.
+                .reduce<string[]>((kept, line) => (kept.some((k) => k.includes(line)) ? kept : [...kept, line]), [])
+                .slice(0, 4)}
+            />
           </SideSection>
 
           <SideSection title="Propiedades">

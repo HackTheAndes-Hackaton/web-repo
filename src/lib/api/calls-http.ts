@@ -1,6 +1,7 @@
 import "server-only";
 import { getCall, getIncidentTranscript, listCalls, parseCallId, saveCall } from "./calls";
 import { ApiError, ok, pagination, readJson, withApi } from "./http";
+import { getReputation } from "./reputation";
 
 type CallCtx = { params: Promise<{ callId: string }> };
 type IncidentCtx = { params: Promise<{ id: string }> };
@@ -34,6 +35,11 @@ export const putCallHandler = noStore(withApi(async (request, ctx: CallCtx) => {
   const { callId } = await ctx.params;
   const saved = await saveCall(organization(request), parseCallId(callId), await readJson(request));
   return ok(saved, saved.created ? 201 : 200);
+}));
+
+export const getReputationHandler = noStore(withApi(async (_request, ctx: { params: Promise<{ number: string }> }) => {
+  const { number } = await ctx.params;
+  return ok(await getReputation(decodeURIComponent(number)));
 }));
 
 export const getIncidentTranscriptHandler = noStore(withApi(async (request, ctx: IncidentCtx) => {

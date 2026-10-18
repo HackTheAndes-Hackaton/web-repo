@@ -112,6 +112,17 @@ export function buildOpenApi(baseUrl: string) {
       responses: { "200": { description: "Incidente y conversación ordenada.", content: json({ type: "object", properties: { data: { type: "object", properties: { incident: ref("Incidents"), transcript: { type: "array", items: ref("TranscriptLine") } } } } }) }, ...callErrors },
     },
   };
+  paths["/reputation/{number}"] = {
+    get: {
+      tags: ["Llamadas"], summary: "Reputación comunitaria de un número",
+      description: "Cuántas llamadas reales marcaron el número como estafa o sospechoso (en cualquier organización) y en cuántos casos se mencionó, por ejemplo como número de Yape. Solo totales: no expone conversaciones, personas ni organizaciones. La app lo consulta mientras suena la llamada.",
+      parameters: [{ name: "number", in: "path", required: true, schema: { type: "string" }, description: "Número en cualquier formato; se compara por sus últimos dígitos." }],
+      responses: { "200": { description: "Totales del número.", content: json({ type: "object", properties: { data: { type: "object", properties: {
+        number_key: { type: "string" }, reports: { type: "integer" }, scam: { type: "integer" }, suspicious: { type: "integer" }, mentioned_in: { type: "integer" },
+        last_reported_at: { type: ["string", "null"], format: "date-time" }, scam_type: { type: ["string", "null"] }, impersonating: { type: ["string", "null"] },
+      } } } }) }, ...callErrors },
+    },
+  };
   paths["/incidents/{id}/transcript"] = {
     get: {
       tags: ["Llamadas"], summary: "Conversación de un incidente",

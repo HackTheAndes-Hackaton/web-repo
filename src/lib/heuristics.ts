@@ -28,6 +28,9 @@ const RULES: Rule[] = [
       /\b(deposit|transfier|transferencia|env[ií]a(me|le)?|manda(me|le)?)\w*\b.*\b(dinero|pesos|d[oó]lares|lana|feria)\b/i,
       /\b(dinero|pesos|d[oó]lares|rescate|fianza|multa|pago|pagar|transferencia|tarjeta de regalo|oxxo|retiro sin tarjeta)\b/i,
       /\$\s?\d/,
+      // Perú: soles, billeteras digitales y depósitos.
+      /\b(yape(a|ar|ame|ale)?|plin(ea|ear)?|soles|dep[oó]sit\w*|transfi[eé]r\w*|cuenta interbancaria|cci)\b/i,
+      /\bS\/\.?\s?\d/,
     ],
     explanation:
       "Hay una solicitud de dinero o pago. Por sí sola no demuestra un engaño, pero justifica verificar quién lo pide.",
@@ -38,6 +41,9 @@ const RULES: Rule[] = [
       /\b(contrase[nñ]a|nip|cvv|c[oó]digo de (verificaci[oó]n|seguridad)|c[oó]digo que te (lleg[oó]|enviamos)|token|clave de acceso)\b/i,
       /\b(n[uú]mero|datos) de (tu |su )?(tarjeta|cuenta)\b/i,
       /\bfecha de vencimiento\b/i,
+      // Lo más común en Perú: pedir el código que llegó por SMS o la clave digital.
+      /\bc[oó]digo (que (le|te) (lleg[oó]|acaba de llegar|enviamos|mandamos)|de \d+ d[ií]gitos|por sms|de validaci[oó]n)(?![\p{L}\d])/iu,
+      /\b(clave (de internet|digital|token|secreta)|pin de (tu|su) tarjeta|(tres|3) n[uú]meros de atr[aá]s)(?![\p{L}\d])/iu,
     ],
     explanation:
       "Se solicitan datos que normalmente nadie legítimo pide por teléfono (códigos, NIP, datos de tarjeta).",
@@ -70,6 +76,9 @@ const RULES: Rule[] = [
       /\bsoy tu (hijo|hija|nieto|nieta|sobrino|sobrina|primo|prima)\b/i,
       /\b(no me reconoces|adivina qui[eé]n (soy|habla)|cambi[eé] de n[uú]mero)\b/i,
       /\b(licenciado|agente|oficial|comandante)\b/i,
+      // Entidades que más se suplantan en Perú.
+      /\b(soy|habla|le habla|le hablo|te hablo|le hablamos|te hablamos|le llamo|te llamo|le llamamos|llamamos) (de|del|de la) (bcp|banco de cr[eé]dito|interbank|bbva|scotiabank|banco de la naci[oó]n|sunat|reniec|pnp|polic[ií]a nacional|claro|movistar|entel|bitel|yape|caja \w+)(?![\p{L}\d])/iu,
+      /(?<![\p{L}\d])([aá]rea|departamento|central) de (seguridad|fraudes|prevenci[oó]n)(?![\p{L}\d])/iu,
     ],
     explanation:
       "El interlocutor se presenta como alguien de confianza o una autoridad. El nombre o número mostrado pueden ser falsos.",
@@ -85,6 +94,26 @@ const RULES: Rule[] = [
   },
 ];
 
+RULES.push(
+  {
+    type: "premio",
+    patterns: [
+      /\b(ganaste|ha ganado|usted gan[oó]|es (el )?ganador|sali[oó] sorteado|sorteo|premio|bono (del estado|familiar|universal)|herencia)(?![\p{L}\d])/iu,
+    ],
+    explanation:
+      "Se anuncia un premio, sorteo o bono. Los premios reales no se cobran con pagos ni datos por teléfono.",
+  },
+  {
+    type: "familiaridad",
+    patterns: [
+      /\b(hola|al[oó]|buenas),? (t[ií]o|t[ií]a|primo|prima|amigo|amiga|herman[oa]|sobrin[oa]|mam[aá]|pap[aá])(?![\p{L}\d])/iu,
+      /\b(ya no me reconoces|adivina qui[eé]n (soy|habla)|soy yo,? tu|no me digas que no me reconoces)(?![\p{L}\d])/iu,
+    ],
+    explanation:
+      "Saludo eufórico o familiaridad forzada: según la PNP es la apertura típica para que la víctima diga un nombre que luego el estafador usa.",
+  },
+);
+
 const WEIGHTS: Record<SignalType, number> = {
   amenaza: 32,
   datos_sensibles: 26,
@@ -93,6 +122,8 @@ const WEIGHTS: Record<SignalType, number> = {
   suplantacion: 18,
   aislamiento: 18,
   urgencia: 14,
+  premio: 16,
+  familiaridad: 14,
 };
 
 export interface DetectedSignal {
@@ -163,6 +194,18 @@ const ORGS = [
   "Ministerio Público",
   "Guardia Nacional",
   "CONDUSEF",
+  "BCP",
+  "Interbank",
+  "Banco de la Nación",
+  "SUNAT",
+  "RENIEC",
+  "PNP",
+  "Yape",
+  "Plin",
+  "Claro",
+  "Movistar",
+  "Entel",
+  "Bitel",
 ];
 
 export function normalizeText(s: string) {
@@ -181,10 +224,16 @@ export function extractEntities(text: string): DetectedEntity[] {
     }
   };
 
-  // Cuentas, tarjetas o CLABE (16 a 18 dígitos, con o sin espacios).
-  for (const m of text.matchAll(/\b(?:\d[\s-]?){16,18}\b/g)) {
+  // Cuentas, tarjetas, CLABE o CCI (13 a 20 dígitos, con o sin espacios: BCP 14, CCI 20).
+  for (const m of text.matchAll(/\b(?:\d[\s-]?){13,20}\b/g)) {
     const digits = m[0].replace(/\D/g, "");
-    if (digits.length >= 16 && digits.length <= 18) push("cuenta", m[0], digits);
+    if (digits.length >= 13 && digits.length <= 20) push("cuenta", m[0], digits);
+  }
+
+  // Celulares de Perú (9 dígitos que empiezan con 9, +51 opcional): también es el número de Yape o Plin.
+  for (const m of text.matchAll(/(?:\+?51[\s-]?)?\b9\d{2}[\s-]?\d{3}[\s-]?\d{3}\b/g)) {
+    const digits = m[0].replace(/\D/g, "").slice(-9);
+    if (!out.some((e) => e.kind === "cuenta" && e.normalized.includes(digits))) push("telefono", m[0], digits);
   }
 
   // Teléfonos de 10 dígitos (México), con prefijo opcional.
@@ -197,7 +246,7 @@ export function extractEntities(text: string): DetectedEntity[] {
   }
 
   // Montos.
-  for (const m of text.matchAll(/\$\s?\d[\d,.]*(?:\s?mil)?|\b\d[\d,.]*\s?(?:mil\s)?(?:pesos|d[oó]lares)\b/gi)) {
+  for (const m of text.matchAll(/\$\s?\d[\d,.]*(?:\s?mil)?|\bS\/\.?\s?\d[\d,.]*(?:\s?mil)?|\b\d[\d,.]*\s?(?:mil\s)?(?:pesos|d[oó]lares|soles)\b/gi)) {
     const raw = m[0];
     let n = Number(raw.replace(/[^\d.]/g, "").replace(/\.(?=\d{3}\b)/g, ""));
     if (/mil/i.test(raw)) n *= 1000;
@@ -228,7 +277,12 @@ export function extractEntities(text: string): DetectedEntity[] {
 
 /** Valor normalizado de un dato para compararlo entre casos. */
 export function normalizeEntity(kind: string, value: string): string {
-  if (kind === "telefono") return value.replace(/\D/g, "").slice(-10);
+  if (kind === "telefono") {
+    const digits = value.replace(/\D/g, "");
+    // Perú: +51 9XXXXXXXX y 9XXXXXXXX son el mismo celular.
+    if (/^(51)?9\d{8}$/.test(digits)) return digits.slice(-9);
+    return digits.slice(-10);
+  }
   if (kind === "cuenta" || kind === "monto") return value.replace(/\D/g, "");
   return normalizeText(value);
 }

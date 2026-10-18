@@ -3,7 +3,9 @@ import type postgres from "postgres";
 import { z } from "zod";
 import { db, newId, type Sql } from "../db";
 import { emit } from "../events";
-import { riskLevelFromScore, type Incident } from "../types";
+import { refreshLinksFor } from "../links";
+import { detectSignals, extractEntities, normalizeEntity, scoreFromSignalTypes } from "../heuristics";
+import { riskLevelFromScore, type Incident, type SignalType } from "../types";
 import { ApiError, notFound } from "./http";
 
 /**
@@ -92,6 +94,47 @@ export function parseCallId(value: string) {
   return parsed.data;
 }
 
+/** Marca de lo que el panel deriva por reglas de la conversación (no lo escribe el servicio de IA). */
+const RULES_SOURCE = "reglas_transcripcion";
+
+/**
+ * Evidencia para el caso a partir de lo que dijo quien llama: señales de riesgo y datos
+ * (cuentas, números Yape, montos, entidades). El número que llamó se registra como mostrado.
+ */
+function evidenceFrom(input: CallInput, segments: { id: string; incident_id: string; speaker: Speaker; text: string }[]) {
+  const signals: Record<string, unknown>[] = [];
+  const entities: Record<string, unknown>[] = [];
+  const meta = { source: RULES_SOURCE } as postgres.JSONValue;
+  const seenSignal = new Set<string>();
+  const seenEntity = new Set<string>();
+  const addEntity = (incident: string, segment: string | null, kind: string, value: string, provenance: string) => {
+    const normalized = normalizeEntity(kind, value);
+    if (!normalized || seenEntity.has(`${kind}:${normalized}`)) return;
+    seenEntity.add(`${kind}:${normalized}`);
+    entities.push({ id: newId("ent"), incident_id: incident, segment_id: segment, kind, value, normalized, provenance, analysis_meta: meta });
+  };
+  for (const segment of segments) {
+    // Las señales salen de lo que dice quien llama; el asistente y el titular no son sospechosos.
+    if (segment.speaker !== "caller") continue;
+    for (const signal of detectSignals(segment.text)) {
+      if (seenSignal.has(signal.type)) continue;
+      seenSignal.add(signal.type);
+      signals.push({
+        id: newId("sig"), incident_id: segment.incident_id, segment_id: segment.id, type: signal.type,
+        evidence: signal.evidence, explanation: signal.explanation, confidence: signal.confidence,
+        source: RULES_SOURCE, analysis_meta: meta,
+      });
+    }
+    for (const entity of extractEntities(segment.text)) {
+      addEntity(segment.incident_id, segment.id, entity.kind, entity.value, "mencionado");
+    }
+  }
+  const shown = input.caller_e164 ?? input.caller_number_raw;
+  const incident = segments[0]?.incident_id;
+  if (shown && incident) addEntity(incident, null, "telefono", shown, "mostrado");
+  return { signals, entities };
+}
+
 function titleFor(input: CallInput) {
   const who = input.caller_name ?? input.caller_e164 ?? input.caller_number_raw;
   if (!who) return input.direction === "outgoing" ? "Llamada saliente" : "Llamada entrante";
@@ -157,26 +200,40 @@ export async function saveCall(org: string, clientCallId: string, value: unknown
       })}`;
     }
     // La app envía la conversación completa: se reemplaza para que reintentos no dupliquen líneas.
+    // Lo derivado por reglas también se recalcula; lo que escribió el servicio de IA se conserva.
+    await tx`delete from signals where incident_id = ${id} and source = ${RULES_SOURCE}`;
+    await tx`delete from entities where incident_id = ${id} and analysis_meta->>'source' = ${RULES_SOURCE}`;
     await tx`delete from segments where incident_id = ${id}`;
-    if (lines.length > 0) {
-      await tx`insert into segments ${tx(
-        lines.map((line, idx) => ({
-          id: newId("seg"),
-          incident_id: id,
-          idx,
-          t_offset: line.t_offset ?? idx,
-          speaker: line.speaker,
-          text: line.text,
-          flagged: line.flagged,
-          is_final: true,
-          source: "android",
-          external_segment_id: line.id,
-        })),
-      )}`;
+    const segments = lines.map((line, idx) => ({
+      id: newId("seg"),
+      incident_id: id,
+      idx,
+      t_offset: line.t_offset ?? idx,
+      speaker: line.speaker,
+      text: line.text,
+      flagged: line.flagged,
+      is_final: true,
+      source: "android",
+      external_segment_id: line.id,
+    }));
+    if (segments.length > 0) await tx`insert into segments ${tx(segments)}`;
+    const evidence = evidenceFrom(input, segments);
+    if (evidence.signals.length > 0) await tx`insert into signals ${tx(evidence.signals)}`;
+    if (evidence.entities.length > 0) await tx`insert into entities ${tx(evidence.entities)}`;
+    // Sin veredicto del servicio de IA, el riesgo del caso sale de las señales observadas.
+    if (input.verdict === "none" && input.risk_score === 0 && evidence.signals.length > 0) {
+      const score = scoreFromSignalTypes(evidence.signals.map((s) => s.type as SignalType));
+      await tx`update incidents set risk_score = ${score}, risk_level = ${riskLevelFromScore(score)} where id = ${id}`;
     }
-    return { incident_id: id, client_call_id: clientCallId, transcript_lines: lines.length, created: !existing };
+    return {
+      incident_id: id, client_call_id: clientCallId, transcript_lines: lines.length, created: !existing,
+      signals: evidence.signals.length, entities: evidence.entities.length,
+    };
   });
+  // Cuentas o números repetidos entre llamadas proponen vínculos entre casos (revisión del analista).
+  await refreshLinksFor(result.incident_id, sql);
   emit({ type: "incident", orgId: org, incidentId: result.incident_id });
+  emit({ type: "links", orgId: org });
   return result;
 }
 
