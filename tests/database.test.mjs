@@ -37,13 +37,13 @@ test('actualiza una base existente sin perder datos ni la revisión anterior; re
     await db.exec(initial);
     await db.exec("insert into incidents(id,title) values ('old-a','Caso conservado'),('old-b','Otro'); insert into links(id,incident_a,incident_b,score,status,reviewed_by) values ('old-link','old-a','old-b',0.8,'confirmado','Revisor anterior')");
     const files=await applyMigrations(sql);
-    assert.deepEqual(files,['20261017010000_call_data_and_review_history.sql']);
+    assert.deepEqual(files,['20261017010000_call_data_and_review_history.sql','20261017020000_audio_fragments.sql']);
     assert.equal((await sql`select title from incidents where id='old-a'`)[0].title,'Caso conservado');
     assert.equal((await sql`select simulated from incidents where id='old-a'`)[0].simulated,null);
     const [link]=await sql`select * from links where id='old-link'`;
     assert.equal(link.status,'confirmado'); assert.equal(link.reviewed_evidence.score,0.8);
     assert.deepEqual(await applyMigrations(sql),[]);
-    assert.equal((await sql`select count(*)::int n from app_meta.schema_migrations`)[0].n,2);
+    assert.equal((await sql`select count(*)::int n from app_meta.schema_migrations`)[0].n,3);
   });
 });
 
@@ -168,4 +168,73 @@ test('el CRUD persiste JSON, metadatos y revisiones; PATCH conserva los campos o
       await assert.rejects(deleteRow(getResource('actions'),audit.id),(e)=>e.code==='immutable_review');
     } finally { delete globalThis.__sql; delete globalThis.__dbReady; }
   });
+});
+
+
+test('audio: guarda bytes originales, aísla organización y sesión, respeta revocación e idempotencia', async () => {
+  const { saveAudio, listAudio, loadAudio } = await import('../src/lib/api/audio.ts');
+  const { randomUUID } = await import('node:crypto');
+  await database(async (_db,sql) => {
+    await fixture(sql);
+    const audio=Buffer.alloc(32044);
+    audio.write('RIFF',0); audio.writeUInt32LE(audio.length-8,4); audio.write('WAVEfmt ',8);
+    audio.writeUInt32LE(16,16); audio.writeUInt16LE(1,20); audio.writeUInt16LE(1,22);
+    audio.writeUInt32LE(16000,24); audio.writeUInt32LE(32000,28); audio.writeUInt16LE(2,32); audio.writeUInt16LE(16,34);
+    audio.write('data',36); audio.writeUInt32LE(32000,40);
+    const input={session_id:randomUUID(),request_id:randomUUID(),consentimiento_conservacion:true,audio_base64:audio.toString('base64'),source:'webrtc_microphone',risk_percent:91};
+    const row=await saveAudio('org',input,sql);
+    assert.equal((await saveAudio('org',input,sql)).id,row.id);
+    assert.equal((await listAudio('org',input.session_id,sql)).length,1);
+    assert.equal((await listAudio('other',input.session_id,sql)).length,0);
+    assert.deepEqual(await loadAudio('org',input.session_id,row.id,sql),audio);
+    await assert.rejects(loadAudio('other',input.session_id,row.id,sql));
+    await assert.rejects(loadAudio('org',randomUUID(),row.id,sql));
+    await assert.rejects(saveAudio('org',{...input,consentimiento_conservacion:false},sql));
+    await assert.rejects(saveAudio('org',{...input,audio_base64:Buffer.alloc(32044).toString('base64')},sql));
+    const changed=Buffer.from(audio); changed[44]=2;
+    await assert.rejects(saveAudio('org',{...input,audio_base64:changed.toString('base64')},sql),e=>e.code==='idempotency_conflict');
+    const [incident]=await sql`select * from incidents where id=${row.incident_id}`;
+    assert.equal(incident.caller_e164,null); assert.equal(incident.analysis_meta.identity_verified,false);
+    assert.equal(incident.consent_snapshot.voice_reference,false);
+    for(let index=0;index<5;index++) await saveAudio('org',{...input,request_id:randomUUID()},sql);
+    await assert.rejects(saveAudio('org',{...input,request_id:randomUUID()},sql),e=>e.code==='clip_limit');
+    await sql`update incidents set consent_snapshot='{"voice_storage":false}' where id=${row.incident_id}`;
+    assert.equal((await listAudio('org',input.session_id,sql)).length,0);
+    await assert.rejects(loadAudio('org',input.session_id,row.id,sql));
+    await sql`delete from incidents where id=${row.incident_id}`;
+    assert.equal((await sql`select count(*)::int n from audio_fragments`)[0].n,0);
+  });
+});
+
+test('MCP HTTP compatible con herramientas 2025 entrega WAV reproducible', async () => {
+  const { audioMcp }=await import('../src/lib/api/mcp.ts');
+  const { randomUUID }=await import('node:crypto');
+  const session_id=randomUUID();
+  const fragment_id='clip_'+'a'.repeat(48);
+  const wave=Buffer.from('audio-de-prueba');
+  const handler=audioMcp('org',{
+    saveAudio:async()=>({id:fragment_id}),
+    listAudio:async(org,session)=>{assert.equal(org,'org');assert.equal(session,session_id);return [{id:fragment_id}];},
+    loadAudio:async()=>wave,
+  });
+  const client=async(name,args)=>{
+    const id=randomUUID();
+    const response=await handler.fetch(new Request('http://mcp.test/api/v1/mcp',{
+      method:'POST',headers:{'Content-Type':'application/json',Accept:'application/json, text/event-stream','MCP-Protocol-Version':'2025-03-26'},
+      body:JSON.stringify({jsonrpc:'2.0',id,method:'tools/call',params:{name,arguments:args}}),
+    }));
+    assert.equal(response.status,200);
+    const text=await response.text();
+    const message=response.headers.get('content-type').includes('event-stream')
+      ? text.split('\n').filter(line=>line.startsWith('data:')).map(line=>JSON.parse(line.slice(5))).find(item=>item.id===id) : JSON.parse(text);
+    if(message.error || message.result?.isError) throw Error('Tool rejected');
+    return message.result.content;
+  };
+  try {
+    const list=await client('listar_fragmentos',{session_id});
+    assert.equal(JSON.parse(list[0].text)[0].id,fragment_id);
+    const audio=await client('escuchar_fragmento',{session_id,fragment_id});
+    assert.equal(audio[0].mimeType,'audio/wav');assert.deepEqual(Buffer.from(audio[0].data,'base64'),wave);
+    await assert.rejects(client('listar_fragmentos',{session_id:'invalid'}));
+  } finally {await handler.close();}
 });
