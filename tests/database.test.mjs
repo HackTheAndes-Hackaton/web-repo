@@ -16,7 +16,7 @@ import { getVapiCall } from "../src/lib/api/vapi.ts";
 import { buildLinkGroups } from "../src/lib/link-groups.ts";
 import { getIncidentDetail, dashboardData, navCounts, listLinks, listBlockedNumbers } from "../src/lib/repo.ts";
 import { createSuspect, listSuspects, SuspectError, unassignCase } from "../src/lib/suspects.ts";
-import { listScamVoices, reviewVoice } from "../src/lib/voices.ts";
+import { listScamVoices, reviewVoice, loadVoiceAudio } from "../src/lib/voices.ts";
 import { getReputation } from "../src/lib/api/reputation.ts";
 import { clearNumberReport } from "../src/lib/number-reports.ts";
 import { canonicalOrg } from "../src/lib/orgs.ts";
@@ -1040,6 +1040,31 @@ test('reportes por bloqueo: con 3 bloqueos el número cuenta como reportado y "E
       // Lo que llega después del borrado vuelve a contar.
       await call('k5',false,'scam',new Date(Date.now()+60000).toISOString());
       assert.equal((await getReputation('946189585',sql)).reports,1);
+    } finally { delete globalThis.__sql; delete globalThis.__dbReady; }
+  });
+});
+
+test('voces: muestra el WAV de la misma sesión y solo lo entrega a su organización', async () => {
+  await database(async (_db,sql) => {
+    await fixture(sql);
+    const session='11111111-2222-4333-8444-555555555555';
+    await sql`update incidents set verdict='scam', agent_session_id=${session} where id='a'`;
+    await sql`insert into incidents(id,org_id,simulated,agent_session_id,consent_snapshot) values
+      ('aud','org',false,${session},'{"voice_storage":true}'),('aud2','other',false,${session},'{"voice_storage":true}')`;
+    const v='['+[1,...Array(15).fill(0)].join(',')+']';
+    await sql`insert into voice_samples(id,incident_id,embedding,model_id,model_version,speaker,quality_status) values ('va','a',${v}::extensions.vector,'m','1','caller','usable')`;
+    const wav=Buffer.alloc(32044); wav.write('RIFF',0);
+    const clip=(id,inc)=>sql`insert into audio_fragments(id,incident_id,request_id,audio,sha256,duration_s,source)
+      values (${id},${inc},${crypto.randomUUID()},${wav},${'a'.repeat(64)},1,'webrtc_microphone')`;
+    await clip('clip_'+'a'.repeat(48),'aud'); await clip('clip_'+'b'.repeat(48),'aud2');
+    globalThis.__sql=sql;
+    globalThis.__dbReady=Promise.resolve();
+    try {
+      const [voice]=await listScamVoices('org');
+      assert.deepEqual(voice.calls[0].audio,[{id:'clip_'+'a'.repeat(48),duration_s:1}]);
+      assert.equal((await loadVoiceAudio('org','clip_'+'a'.repeat(48))).length,32044);
+      assert.equal(await loadVoiceAudio('org','clip_'+'b'.repeat(48)),null);
+      assert.equal(await loadVoiceAudio('org','no-es-un-id'),null);
     } finally { delete globalThis.__sql; delete globalThis.__dbReady; }
   });
 });

@@ -13,6 +13,12 @@ export const SAME_VOICE = 0.75;
 
 export type VoiceStatus = "pendiente" | "confirmada" | "descartada";
 
+/** Fragmento WAV guardado por el servidor de voz para la misma sesión de la llamada. */
+export interface VoiceAudio {
+  id: string;
+  duration_s: number;
+}
+
 export interface VoiceCall {
   id: string;
   title: string;
@@ -21,6 +27,7 @@ export interface VoiceCall {
   scam_type: string | null;
   impersonating: string | null;
   samples: number;
+  audio: VoiceAudio[];
 }
 
 export interface ScamVoice {
@@ -78,12 +85,25 @@ export async function listScamVoices(orgId: string): Promise<ScamVoice[]> {
       having max(1 - (a.embedding operator(extensions.<=>) b.embedding)) >= ${SAME_VOICE}`,
   ]);
 
+  // Audio de cada llamada: el servidor de voz lo guarda en otro incidente de la misma sesión.
+  const callIds = [...new Set(samples.map((s) => s.incident_id))];
+  const audios = callIds.length
+    ? await sql<{ call_id: string; id: string; duration_s: number }[]>`
+        select c.id as call_id, f.id, f.duration_s from incidents c
+        join incidents a on a.org_id = c.org_id and a.consent_snapshot->>'voice_storage' = 'true'
+          and (a.id = c.id or (c.agent_session_id is not null and a.agent_session_id = c.agent_session_id))
+        join audio_fragments f on f.incident_id = a.id
+        where c.org_id = ${orgId} and c.id in ${sql(callIds)}
+        order by f.created_at`
+    : [];
+
   // Una llamada por fila, con sus huellas.
   const calls = new Map<string, VoiceCall & { statuses: SampleRow["review_status"][] }>();
   for (const s of samples) {
     const c = calls.get(s.incident_id) ?? {
       id: s.incident_id, title: s.title, seen_at: s.seen_at, number: s.number,
       scam_type: s.scam_type, impersonating: s.impersonating, samples: 0, statuses: [],
+      audio: audios.filter((a) => a.call_id === s.incident_id).map((a) => ({ id: a.id, duration_s: a.duration_s })),
     };
     c.samples++;
     c.statuses.push(s.review_status);
@@ -121,7 +141,7 @@ export async function listScamVoices(orgId: string): Promise<ScamVoice[]> {
     return {
       key: root,
       status,
-      calls: sorted.map((c) => ({ id: c.id, title: c.title, seen_at: c.seen_at, number: c.number, scam_type: c.scam_type, impersonating: c.impersonating, samples: c.samples })),
+      calls: sorted.map((c) => ({ id: c.id, title: c.title, seen_at: c.seen_at, number: c.number, scam_type: c.scam_type, impersonating: c.impersonating, samples: c.samples, audio: c.audio })),
       numbers: uniq(sorted.map((c) => c.number)),
       scam_types: uniq(sorted.map((c) => c.scam_type)),
       impersonating: uniq(sorted.map((c) => c.impersonating)),
@@ -167,4 +187,14 @@ export async function reviewVoice(session: Session, incidentIds: string[], decis
     })))}`;
     return updated.length;
   });
+}
+
+/** WAV de un fragmento de voz, solo de la organización y con permiso para conservar la voz. */
+export async function loadVoiceAudio(orgId: string, fragmentId: string): Promise<Buffer | null> {
+  if (!/^clip_[a-f0-9]{48}$/.test(fragmentId)) return null;
+  const sql = await db();
+  const [row] = await sql<{ audio: Uint8Array }[]>`
+    select f.audio from audio_fragments f join incidents i on i.id = f.incident_id
+    where f.id = ${fragmentId} and i.org_id = ${orgId} and i.consent_snapshot->>'voice_storage' = 'true'`;
+  return row ? Buffer.from(row.audio) : null;
 }

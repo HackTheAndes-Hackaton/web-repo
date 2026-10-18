@@ -28,6 +28,7 @@ function VoiceCard({ voice, number }: { voice: ScamVoice; number: number }) {
             <p className="mt-0.5 text-sm text-fg-2">
               {voice.calls.length} {voice.calls.length === 1 ? "llamada" : "llamadas"}
               {voice.similarity !== null && <> · parecido {pct(voice.similarity)}</>}
+              {voice.calls.some((c) => c.audio.length > 0) && <> · con audio</>}
               {" · "}última {fmtDateTime(voice.last_seen)}
             </p>
           </div>
@@ -58,6 +59,15 @@ function VoiceCard({ voice, number }: { voice: ScamVoice; number: number }) {
               <span className="min-w-0 flex-1 truncate text-fg-2">{c.title}</span>
               <span className="tabular shrink-0 text-xs text-muted">{fmtDateTime(c.seen_at)}</span>
             </Link>
+            {c.audio.map((a) => (
+              <div key={a.id} className="mb-2 flex items-center gap-3 pl-[4.75rem]">
+                {/* preload="none": el WAV solo se descarga si se reproduce. */}
+                <audio controls preload="none" src={`/panel/voces/audio/${a.id}`} className="h-9 w-full max-w-sm">
+                  Tu navegador no puede reproducir este audio.
+                </audio>
+                <span className="tabular shrink-0 text-xs text-muted">{Math.round(a.duration_s)} s</span>
+              </div>
+            ))}
           </li>
         ))}
       </ul>
