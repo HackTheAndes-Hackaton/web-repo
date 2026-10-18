@@ -4,13 +4,13 @@ import { Clock, FolderOpen, Hash, Mic, PhoneIncoming, PhoneOutgoing, ShieldAlert
 import { fmtDateTime, fmtDuration, fmtPhone, pct } from "@/lib/format";
 import { caseCode, type IncidentDetail } from "@/lib/repo";
 import { channelLabel, scamTypeLabel } from "@/lib/types";
-import { EntityTable, RiskMeter, SignalList } from "./incident-parts";
+import { Conversation, EntityTable, RiskMeter, SignalList } from "./incident-parts";
 import { LinkReasons } from "./links-ui";
 import { PrintButton } from "./PrintButton";
 import { NetworkOriginPanel } from "./NetworkOriginPanel";
 import { CallerNumber, Card, IconBubble, PageHeader, Pill, RiskBadge, ScamTypeChip, VerdictBadge } from "./ui";
 
-export type ReportTab = "ia" | "datos";
+export type ReportTab = "conversacion" | "ia" | "datos";
 
 function Property({ label, children }: { label: string; children: ReactNode }) {
   return (
@@ -56,12 +56,13 @@ function Fact({
 const DIRECTION = { incoming: "Llamada entrante", outgoing: "Llamada saliente" };
 
 export function IncidentReport({ detail, tab = "ia" }: { detail: IncidentDetail; tab?: ReportTab }) {
-  const { incident, signals, entities, actions, voiceSamples, owner, sharedOrg, links, relatedGroup, relatedCases } = detail;
+  const { incident, transcript, signals, entities, actions, voiceSamples, owner, sharedOrg, links, relatedGroup, relatedCases } = detail;
   const here = `/panel/casos/${incident.id}`;
   const number = fmtPhone(incident.caller_e164 ?? incident.caller_number_raw);
   const reasons = Array.isArray(incident.risk_reasons) ? incident.risk_reasons.filter((r) => typeof r === "string") : [];
 
   const tabs: { id: ReportTab; label: string; count: number }[] = [
+    { id: "conversacion", label: "Conversación", count: transcript.length },
     { id: "ia", label: "Señales de la IA", count: signals.length },
     { id: "datos", label: "Datos observados", count: entities.length },
   ];
@@ -187,6 +188,12 @@ export function IncidentReport({ detail, tab = "ia" }: { detail: IncidentDetail;
           )}
 
           {tab === "ia" && <SignalList signals={signals} />}
+
+          {tab === "conversacion" && (
+            <Card title="Lo que se habló en la llamada">
+              <Conversation lines={transcript} />
+            </Card>
+          )}
         </div>
 
         <aside className="space-y-0 lg:border-l lg:border-line lg:pl-6">

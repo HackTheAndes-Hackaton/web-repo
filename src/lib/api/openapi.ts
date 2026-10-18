@@ -2,6 +2,7 @@ import "server-only";
 import { z } from "zod";
 import { RESOURCES, type ResourceDef } from "./resources";
 import { audioInput } from "./audio";
+import { callInput, SPEAKERS } from "./calls";
 import { networkBindingInput, networkOriginSchema } from "../network-origin";
 
 /** Especificación OpenAPI 3.1 generada a partir de las definiciones de recursos. */
@@ -76,6 +77,47 @@ export function buildOpenApi(baseUrl: string) {
       requestBody: { required: true, content: json(ref("NetworkBinding")) }, responses: networkResponse },
     post: { tags: ["Procedencia"], summary: "Consultar metadatos de la llamada vinculada en Vapi", description: "Usa VAPI_PRIVATE_KEY en el servidor. No consulta GeoIP ni interpreta IPs de proxies como direcciones del interlocutor.", parameters: networkParameters,
       responses: { ...networkResponse, "502": { description: "Error o respuesta inválida del proveedor; conserva la última consulta correcta." }, "503": { description: "Falta configurar VAPI_PRIVATE_KEY." } } },
+  };
+
+  schemas.CallInput = inputSchema(callInput);
+  schemas.TranscriptLine = {
+    type: "object",
+    properties: {
+      id: { type: "string" }, idx: { type: "integer" }, speaker: { type: ["string", "null"], enum: [...SPEAKERS, null] },
+      text: { type: "string" }, flagged: { type: "boolean" }, t_offset: { type: "number" }, external_segment_id: { type: ["string", "null"] },
+    },
+  };
+  const callOrg = { name: "X-Tiskz-Org", in: "header", required: true, schema: { type: "string" }, description: "Organización con la que la persona comparte sus llamadas." };
+  const callIdParam = { name: "callId", in: "path", required: true, schema: { type: "string" }, description: "client_call_id generado por Android." };
+  const callErrors = { ...errorResponses, "400": { description: "Falta X-Tiskz-Org o el identificador no es válido.", content: json(ref("Error")) } };
+  paths["/calls"] = {
+    get: {
+      tags: ["Llamadas"], summary: "Listar llamadas recientes con su conversación guardada",
+      description: "Llamadas registradas por la app (con client_call_id), de la más reciente a la más antigua, con cuántas líneas de conversación tienen.",
+      parameters: [callOrg, { name: "limit", in: "query", schema: { type: "integer", minimum: 1, maximum: 200, default: 50 } }, { name: "offset", in: "query", schema: { type: "integer", minimum: 0, default: 0 } }],
+      responses: { "200": { description: "Lista paginada.", content: json({ type: "object", properties: { data: { type: "array", items: { type: "object" } }, pagination: ref("Pagination") } }) }, ...callErrors },
+    },
+  };
+  paths["/calls/{callId}"] = {
+    put: {
+      tags: ["Llamadas"], summary: "Guardar una llamada y su conversación",
+      description: "La app la envía al terminar la llamada: datos de la llamada y la conversación completa (asistente, quien llama y titular). Reenviar el mismo callId actualiza la llamada y reemplaza la conversación; no duplica. Respuesta 201 al crear, 200 al actualizar.",
+      parameters: [callOrg, callIdParam],
+      requestBody: { required: true, content: json(ref("CallInput")) },
+      responses: { "200": { description: "Actualizada." }, "201": { description: "Creada." }, "403": { description: "La persona revocó la compartición." }, ...callErrors },
+    },
+    get: {
+      tags: ["Llamadas"], summary: "Obtener una llamada con su conversación",
+      parameters: [callOrg, callIdParam],
+      responses: { "200": { description: "Incidente y conversación ordenada.", content: json({ type: "object", properties: { data: { type: "object", properties: { incident: ref("Incidents"), transcript: { type: "array", items: ref("TranscriptLine") } } } } }) }, ...callErrors },
+    },
+  };
+  paths["/incidents/{id}/transcript"] = {
+    get: {
+      tags: ["Llamadas"], summary: "Conversación de un incidente",
+      parameters: [callOrg, { name: "id", in: "path", required: true, schema: { type: "string" } }],
+      responses: { "200": { description: "Líneas en orden.", content: json({ type: "object", properties: { data: { type: "array", items: ref("TranscriptLine") } } }) }, ...callErrors },
+    },
   };
 
   const audioOrg = {name:"X-Tiskz-Org",in:"header",required:true,schema:{type:"string"}};

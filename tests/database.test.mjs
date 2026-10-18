@@ -487,3 +487,61 @@ test('el detalle muestra el grupo completo con casos indirectos y conserva las r
     } finally {delete globalThis.__sql;delete globalThis.__dbReady;}
   });
 });
+
+test('llamadas: guarda la conversación, reemplaza al reenviar, aísla organizaciones y exige clave', async () => {
+  const {listCallsHandler,getCallHandler,putCallHandler,getIncidentTranscriptHandler}=await import('../src/lib/api/calls-http.ts');
+  const {createHash}=await import('node:crypto');
+  await database(async (_db,sql) => {
+    await fixture(sql);
+    globalThis.__sql=sql; globalThis.__dbReady=Promise.resolve();
+    try {
+      const key='tkz_synthetic_calls_http';
+      await sql`insert into api_keys(id,name,prefix,key_hash) values ('calls-key','Prueba llamadas','tkz_synthetic',${createHash('sha256').update(key).digest('hex')})`;
+      const headers={'Authorization':`Bearer ${key}`,'X-Tiskz-Org':'org','Content-Type':'application/json'};
+      const call={
+        caller_number_raw:'946189585',caller_e164:'+51946189585',direction:'incoming',call_status:'ended',
+        started_at:'2026-10-17T20:00:00.000Z',answered_at:'2026-10-17T20:00:05.000Z',ended_at:'2026-10-17T20:02:00.000Z',
+        talk_duration_s:115,screened:true,verdict:'scam',risk_score:86,risk_reasons:['Pide código de verificación'],
+        scam_type:'Suplantación bancaria',impersonating:'BCP',
+        transcript:[
+          {id:'l1',speaker:'agent',text:'Hola, soy el asistente de esta línea. ¿Quién llama?'},
+          {id:'l2',speaker:'caller',text:'Le llamo del BCP, necesito el código que le llegó.',flagged:true},
+          {id:'l3',speaker:'user',text:'No voy a dar ningún código.'},
+        ],
+      };
+      const ctx={params:Promise.resolve({callId:'android-call-1'})};
+      const put=(body,h=headers)=>putCallHandler(new Request('https://panel.test/api/v1/calls/android-call-1',{method:'PUT',headers:h,body:JSON.stringify(body)}),ctx);
+      assert.equal((await put(call,{'Content-Type':'application/json'})).status,401);
+      assert.equal((await put(call,{...headers,'X-Tiskz-Org':''})).status,400);
+      assert.equal((await put({...call,transcript:[{id:'x',speaker:'robot',text:'?'}]})).status,422);
+      const created=await put(call);
+      assert.equal(created.status,201);assert.equal(created.headers.get('Cache-Control'),'no-store');
+      const saved=(await created.json()).data;
+      assert.equal(saved.transcript_lines,3);
+      const [incident]=await sql`select * from incidents where id=${saved.incident_id}`;
+      assert.equal(incident.org_id,'org');assert.equal(incident.risk_level,'alto');assert.equal(incident.title,'Llamada de +51946189585');
+      assert.equal(incident.consent_snapshot.transcript_storage,true);assert.equal(incident.analysis_meta.screened_by_assistant,true);
+      // Reenviar la misma llamada actualiza y reemplaza la conversación: no duplica.
+      const again=await put({...call,transcript:call.transcript.slice(0,2),verdict:'suspicious',risk_score:50});
+      assert.equal(again.status,200);
+      assert.equal((await sql`select count(*)::int n from incidents where client_call_id='android-call-1'`)[0].n,1);
+      const read=await (await getCallHandler(new Request('https://panel.test/api/v1/calls/android-call-1',{headers}),ctx)).json();
+      assert.deepEqual(read.data.transcript.map(l=>[l.speaker,l.flagged]),[['agent',false],['caller',true]]);
+      assert.equal(read.data.incident.verdict,'suspicious');
+      // Otra organización no ve la llamada.
+      assert.equal((await getCallHandler(new Request('https://panel.test/api/v1/calls/android-call-1',{headers:{...headers,'X-Tiskz-Org':'other'}}),ctx)).status,404);
+      const list=await (await listCallsHandler(new Request('https://panel.test/api/v1/calls?limit=10',{headers}),{})).json();
+      assert.equal(list.pagination.total,1);assert.equal(list.data[0].transcript_lines,2);
+      const lines=await (await getIncidentTranscriptHandler(new Request(`https://panel.test/api/v1/incidents/${saved.incident_id}/transcript`,{headers}),{params:Promise.resolve({id:saved.incident_id})})).json();
+      assert.equal(lines.data.length,2);
+      // El panel muestra la conversación en el detalle del caso.
+      const detail=await getIncidentDetail(saved.incident_id,{role:'analista',orgId:'org',userId:'analyst'});
+      assert.equal(detail.transcript[0].text,call.transcript[0].text);
+      // Si la persona revoca la compartición, no se reescribe ni se lee.
+      await sql`update incidents set sharing_revoked_at=now() where id=${saved.incident_id}`;
+      assert.equal((await put(call)).status,403);
+      assert.equal((await getCallHandler(new Request('https://panel.test/api/v1/calls/android-call-1',{headers}),ctx)).status,404);
+      assert.ok(buildOpenApi('https://panel.test').paths['/calls/{callId}'].put);
+    } finally {delete globalThis.__sql;delete globalThis.__dbReady;}
+  });
+});

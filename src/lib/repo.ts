@@ -11,6 +11,7 @@ import type {
   Signal,
   SignalType,
 } from "./types";
+import type { TranscriptLine } from "./api/calls";
 
 export async function getIncident(id: string) {
   const sql = await db();
@@ -80,8 +81,10 @@ export async function getIncidentDetail(id: string, session: Session) {
   const sql = await db();
   const incident = await getIncident(id);
   if (!incident || !canView(session, incident)) return null;
-  const [signals, entities, actions, [{ n: voiceSamples }], [owner], sharedOrg, allLinks, groupCases] =
+  const [transcript, signals, entities, actions, [{ n: voiceSamples }], [owner], sharedOrg, allLinks, groupCases] =
     await Promise.all([
+      sql<TranscriptLine[]>`select id, idx, speaker, text, flagged, t_offset, external_segment_id
+        from segments where incident_id = ${id} order by idx, created_at`,
       sql<Signal[]>`select * from signals where incident_id = ${id} order by created_at`,
       sql<Entity[]>`select * from entities where incident_id = ${id} order by kind, value`,
       sql<ActionLog[]>`select * from actions where incident_id = ${id}
@@ -108,6 +111,7 @@ export async function getIncidentDetail(id: string, session: Session) {
     .sort((a, b) => Number(b.direct) - Number(a.direct) || a.started_at.localeCompare(b.started_at));
   return {
     incident,
+    transcript: [...transcript],
     signals: [...signals],
     entities: [...entities],
     actions: [...actions],

@@ -16,6 +16,46 @@ const METER: Record<RiskLevel, { headline: string; ink: string; color: string }>
   alto: { headline: "Posible estafa", ink: "text-critical", color: "var(--critical)" },
 };
 
+type ConversationLine = { id: string; speaker: string | null; text: string; flagged: boolean };
+
+const SPEAKER: Record<string, { label: string; mine: boolean; bubble: string; name: string }> = {
+  agent: { label: "Asistente Tiskz", mine: true, bubble: "bg-accent text-white", name: "text-accent-ink" },
+  user: { label: "Titular", mine: true, bubble: "bg-good-wash text-good-ink", name: "text-good-ink" },
+  caller: { label: "Quien llama", mine: false, bubble: "bg-surface-2 text-fg", name: "text-muted" },
+};
+
+/** Conversación de la llamada como en la app: el asistente y el titular a la derecha, quien llama a la izquierda. */
+export function Conversation({ lines }: { lines: ConversationLine[] }) {
+  if (lines.length === 0) {
+    return <Empty>Esta llamada no tiene conversación guardada. La app la envía al terminar cada llamada.</Empty>;
+  }
+  return (
+    <ol className="space-y-3">
+      {lines.map((line, i) => {
+        const who = SPEAKER[line.speaker ?? "caller"] ?? SPEAKER.caller;
+        const sameAsBefore = i > 0 && lines[i - 1].speaker === line.speaker;
+        return (
+          <li key={line.id} className={`flex flex-col ${who.mine ? "items-end" : "items-start"}`}>
+            {!sameAsBefore && <span className={`mb-1 px-1 text-xs font-semibold ${who.name}`}>{who.label}</span>}
+            <p
+              className={`max-w-[85%] rounded-[20px] px-4 py-2.5 text-[15px] leading-relaxed ${who.bubble} ${
+                who.mine ? "rounded-br-md" : "rounded-bl-md"
+              } ${line.flagged ? "ring-2 ring-critical ring-offset-2 ring-offset-surface" : ""}`}
+            >
+              {line.text}
+            </p>
+            {line.flagged && (
+              <span className="mt-1 flex items-center gap-1 px-1 text-xs font-medium text-critical">
+                <TriangleAlert size={12} aria-hidden /> Señal de riesgo
+              </span>
+            )}
+          </li>
+        );
+      })}
+    </ol>
+  );
+}
+
 /** Barra de riesgo con el mismo diseño que la pantalla de llamada de la app. */
 export function RiskMeter({ score, level }: { score: number; level: RiskLevel }) {
   const m = METER[level];
