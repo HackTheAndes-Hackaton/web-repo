@@ -1,13 +1,16 @@
 import Link from "next/link";
-import { CalendarDays, Hash, Link2, Mic, Sparkles, UserRound } from "lucide-react";
+import { CalendarDays, Hash, Link2, Mic, Phone, Sparkles, UserRound, UserRoundSearch } from "lucide-react";
 import type { ReactNode } from "react";
+import { unassignCaseAction } from "@/app/actions";
 import { LinkGraph } from "@/components/LinkGraph";
+import { AddMissingForm, EditSuspectForm, NameGroupForm } from "@/components/SuspectForms";
 import { CallerNumber, Card, Empty, IconBubble, PageHeader, RiskBadge, ScamTypeChip } from "@/components/ui";
-import { fmtDateTime, pct } from "@/lib/format";
+import { fmtDateTime, fmtPhone, pct } from "@/lib/format";
 import { requireAnalyst } from "@/lib/panel";
 import { caseCode, listLinks, listSharedIncidents, type LinkView, type IncidentSummary } from "@/lib/repo";
 import { buildLinkGroups, type LinkGroup } from "@/lib/link-groups";
-import type { LinkReason, RiskLevel } from "@/lib/types";
+import { listSuspects, type SuspectSummary } from "@/lib/suspects";
+import { scamTypeLabel, type LinkReason, type RiskLevel } from "@/lib/types";
 
 /** Las razones antiguas basadas en el guion de la transcripción ya no se muestran. */
 const visibleReasons = (reasons: LinkReason[]) => reasons.filter((r) => !/guion/i.test(r.detail));
@@ -32,6 +35,7 @@ function CaseSide(props: {
   scamType: string | null;
   impersonating: string | null;
   caller: string | null;
+  alias?: string | null;
 }) {
   return (
     <Link
@@ -45,6 +49,12 @@ function CaseSide(props: {
       <div className="flex flex-wrap items-center gap-2">
         <RiskBadge level={props.risk} />
         <ScamTypeChip type={props.scamType} />
+        {props.alias && (
+          <span className="inline-flex items-center gap-1 rounded-full bg-navy px-2.5 py-0.5 text-xs font-semibold text-white">
+            <UserRoundSearch size={12} aria-hidden />
+            {props.alias}
+          </span>
+        )}
       </div>
       <dl className="space-y-1.5 text-xs text-fg-2">
         <div className="flex items-center gap-1.5">
@@ -109,7 +119,7 @@ function ConnectionEvidence({ l }: { l: LinkView }) {
             {reasons.map((r, i) => {
               const meta = REASON[r.kind as keyof typeof REASON] ?? REASON.contenido;
               return (
-                <ReasonRow key={i} icon={meta.icon} tone={meta.tone} title={meta.title}>
+                <ReasonRow key={i} icon={meta.icon} tone={meta.tone} title={r.detail.includes(":") ? r.detail.split(":")[0] : meta.title}>
                   {r.detail.replace(/^[^:]+:\s*/, "")}
                 </ReasonRow>
               );
@@ -123,7 +133,36 @@ function ConnectionEvidence({ l }: { l: LinkView }) {
   );
 }
 
-function GroupCard({ group, cases }: { group: LinkGroup<LinkView>; cases: Map<string, IncidentSummary> }) {
+/** Si el grupo ya está registrado, muestra el alias; si no, permite registrarlo. */
+function GroupRecord({ members, suspects }: { members: IncidentSummary[]; suspects: Map<string, SuspectSummary> }) {
+  const assigned = [...new Set(members.map((m) => m.suspect_id).filter((id): id is string => Boolean(id && suspects.has(id))))];
+  const missing = members.filter((m) => !m.suspect_id || !suspects.has(m.suspect_id)).map((m) => m.id);
+  if (!assigned.length) {
+    const open = [...suspects.values()].filter((s) => s.status === "en_investigacion").map((s) => ({ id: s.id, alias: s.alias }));
+    return <NameGroupForm incidentIds={members.map((m) => m.id)} existing={open} />;
+  }
+  return (
+    <div className="w-full space-y-3 rounded-2xl bg-surface-2 p-4">
+      <div className="flex flex-wrap items-center gap-2 text-sm">
+        <UserRoundSearch size={16} className="text-critical-ink" aria-hidden />
+        <span className="font-semibold">{assigned.length === 1 ? "Registrado como presunto estafador:" : "Casos repartidos entre registros:"}</span>
+        {assigned.map((id) => (
+          <a key={id} href={`#${id}`} className="rounded-full bg-navy px-3 py-1 text-xs font-semibold text-white hover:brightness-125">
+            {suspects.get(id)!.alias}
+          </a>
+        ))}
+      </div>
+      {assigned.length === 1 && missing.length > 0 && (
+        <AddMissingForm suspectId={assigned[0]} alias={suspects.get(assigned[0])!.alias} incidentIds={missing} />
+      )}
+      {assigned.length > 1 && (
+        <p className="text-xs text-muted">Revisa si son el mismo estafador antes de unificarlos; cada caso solo puede estar en un registro.</p>
+      )}
+    </div>
+  );
+}
+
+function GroupCard({ group, cases, suspects }: { group: LinkGroup<LinkView>; cases: Map<string, IncidentSummary>; suspects: Map<string, SuspectSummary> }) {
   const members = group.incidentIds.map((id) => cases.get(id)!).sort((a, b) => a.started_at.localeCompare(b.started_at));
   return (
     <li id={group.anchor} className="scroll-mt-6 rounded-3xl bg-surface p-6 shadow-soft sm:p-7">
@@ -134,11 +173,13 @@ function GroupCard({ group, cases }: { group: LinkGroup<LinkView>; cases: Map<st
         </div>
         <span className="rounded-full bg-accent-wash px-3 py-1 text-xs font-semibold text-accent-ink">Red para investigar</span>
       </div>
+      <div className="mt-4"><GroupRecord members={members} suspects={suspects} /></div>
       <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
         {members.map((incident) => (
           <CaseSide key={incident.id} id={incident.id} title={incident.title} started={incident.started_at}
             risk={incident.risk_level} scamType={incident.scam_type} impersonating={incident.impersonating}
-            caller={incident.caller_e164 ?? incident.caller_number_raw} />
+            caller={incident.caller_e164 ?? incident.caller_number_raw}
+            alias={incident.suspect_id ? suspects.get(incident.suspect_id)?.alias : null} />
         ))}
       </div>
       <p className="mt-4 text-xs text-muted">El grupo reúne conexiones directas e indirectas. Pertenecer a la misma red no confirma una conexión entre todos sus casos ni una misma persona.</p>
@@ -150,9 +191,77 @@ function GroupCard({ group, cases }: { group: LinkGroup<LinkView>; cases: Map<st
   );
 }
 
+function SuspectRecord({ suspect, cases }: { suspect: SuspectSummary; cases: IncidentSummary[] }) {
+  const discarded = suspect.status === "descartado";
+  return (
+    <li id={suspect.id} className={`scroll-mt-6 rounded-3xl bg-surface p-6 shadow-soft ${discarded ? "opacity-70" : ""}`}>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="flex items-start gap-3">
+          <IconBubble tone={discarded ? "neutral" : "critical"}><UserRoundSearch size={18} aria-hidden /></IconBubble>
+          <div>
+            <h3 className="text-lg font-bold leading-tight">{suspect.alias}</h3>
+            <p className="mt-0.5 text-xs text-muted">
+              Registrado por {suspect.created_by ?? "un analista"} · {fmtDateTime(suspect.created_at)}
+            </p>
+          </div>
+        </div>
+        <span className={`rounded-full px-3 py-1 text-xs font-semibold ${discarded ? "bg-surface-2 text-fg-2" : "bg-critical-wash text-critical-ink"}`}>
+          {discarded ? "Descartado" : "En investigación"}
+        </span>
+      </div>
+
+      <dl className="mt-4 grid gap-3 text-sm sm:grid-cols-3">
+        <div className="rounded-2xl bg-surface-2 p-3">
+          <dt className="text-xs text-muted">Casos</dt>
+          <dd className="tabular text-xl font-bold">{suspect.case_count}</dd>
+        </div>
+        <div className="rounded-2xl bg-surface-2 p-3">
+          <dt className="text-xs text-muted">Primera y última llamada</dt>
+          <dd className="font-medium">
+            {suspect.first_call ? `${fmtDateTime(suspect.first_call)} — ${fmtDateTime(suspect.last_call!)}` : "—"}
+          </dd>
+        </div>
+        <div className="rounded-2xl bg-surface-2 p-3">
+          <dt className="text-xs text-muted">Tipos de estafa</dt>
+          <dd className="font-medium">{suspect.scam_types.map((t) => scamTypeLabel(t)).join(", ") || "Sin clasificar"}</dd>
+        </div>
+      </dl>
+      {suspect.numbers.length > 0 && (
+        <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-fg-2">
+          <Phone size={13} className="text-muted" aria-hidden />
+          Números usados:
+          {suspect.numbers.map((n) => (
+            <span key={n} className="tabular rounded-full bg-surface-2 px-2.5 py-0.5 font-medium text-fg">{fmtPhone(n) ?? n}</span>
+          ))}
+        </div>
+      )}
+      {suspect.notes && <p className="mt-3 whitespace-pre-line rounded-2xl bg-accent-wash px-4 py-3 text-sm text-accent-ink">{suspect.notes}</p>}
+
+      {cases.length > 0 && (
+        <ul className="mt-4 divide-y divide-line text-sm">
+          {cases.map((c) => (
+            <li key={c.id} className="flex items-center gap-2 py-2">
+              <Link href={`/panel/casos/${c.id}`} className="min-w-0 flex-1 hover:text-accent-ink">
+                <span className="tabular font-semibold">{caseCode(c.id)}</span> · {c.title}
+                <span className="ml-2 text-xs text-muted">{fmtDateTime(c.started_at)}</span>
+              </Link>
+              <form action={unassignCaseAction.bind(null, c.id)}>
+                <button className="rounded-full px-3 py-1 text-xs text-fg-2 hover:bg-critical-wash hover:text-critical-ink">Quitar</button>
+              </form>
+            </li>
+          ))}
+        </ul>
+      )}
+      <EditSuspectForm suspect={{ id: suspect.id, alias: suspect.alias, notes: suspect.notes, status: suspect.status }} />
+      <p className="mt-3 text-xs text-muted">Alias de registro: no identifica a una persona ni prueba que todos los casos tengan el mismo autor.</p>
+    </li>
+  );
+}
+
 export default async function LinksPage() {
   const { orgId } = await requireAnalyst();
-  const [links, incidents] = await Promise.all([listLinks(orgId), listSharedIncidents(orgId)]);
+  const [links, incidents, suspectList] = await Promise.all([listLinks(orgId), listSharedIncidents(orgId), listSuspects(orgId)]);
+  const suspects = new Map(suspectList.map((s) => [s.id, s]));
   const groups = buildLinkGroups(incidents, links);
   const groupedLinks = groups.flatMap((group) => group.links);
   const connectedIds = new Set(groups.flatMap((group) => group.incidentIds));
@@ -166,22 +275,42 @@ export default async function LinksPage() {
           { href: "/panel/vinculos", label: "Vínculos" },
         ]}
         title="Vínculos entre casos"
-        description="Explora grupos de dos o más casos conectados por voz, datos repetidos o patrones de señales. Cada conexión conserva su propia evidencia y revisión."
+        description="Explora grupos de casos conectados por voz, el número que llamó, datos repetidos o patrones de señales. Si crees que un grupo es obra del mismo estafador, regístralo con un alias para darle seguimiento."
       />
 
       <Card title={`Red de casos · ${groups.length} ${groups.length === 1 ? "grupo" : "grupos"} · ${groupedLinks.length} ${groupedLinks.length === 1 ? "conexión" : "conexiones"}`}>
-        <LinkGraph incidents={incidents.filter((incident) => connectedIds.has(incident.id))} links={groupedLinks} />
+        <LinkGraph
+          incidents={incidents.filter((incident) => connectedIds.has(incident.id))}
+          links={groupedLinks}
+          suspects={Object.fromEntries(suspectList.map((s) => [s.id, s.alias]))}
+        />
       </Card>
 
       <h2 className="mt-8 mb-4 text-[17px] font-semibold">Grupos de casos relacionados</h2>
       {groups.length ? (
         <ul className="space-y-6">
           {groups.map((group) => (
-            <GroupCard key={group.anchor} group={group} cases={cases} />
+            <GroupCard key={group.anchor} group={group} cases={cases} suspects={suspects} />
           ))}
         </ul>
       ) : (
         <Empty>La IA todavía no detectó vínculos entre casos.</Empty>
+      )}
+
+      <h2 className="mt-10 mb-1 text-[17px] font-semibold">Registro de presuntos estafadores</h2>
+      <p className="mb-4 text-sm text-muted">Alias que el equipo puso a grupos de casos que cree obra de la misma persona o banda.</p>
+      {suspectList.length ? (
+        <ul className="grid gap-6 lg:grid-cols-2">
+          {suspectList.map((s) => (
+            <SuspectRecord
+              key={s.id}
+              suspect={s}
+              cases={incidents.filter((i) => i.suspect_id === s.id).sort((a, b) => a.started_at.localeCompare(b.started_at))}
+            />
+          ))}
+        </ul>
+      ) : (
+        <Empty>Todavía no hay registros. Usa «Registrar como posible mismo estafador» en un grupo de casos.</Empty>
       )}
     </>
   );

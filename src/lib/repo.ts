@@ -102,6 +102,10 @@ export async function getIncidentDetail(id: string, session: Session) {
           select id,org_id,simulated,sharing_revoked_at,title,started_at from incidents where org_id=${incident.org_id}`
         : Promise.resolve([] as (GroupIncident & { title: string; started_at: string })[]),
     ]);
+  const [suspect] = incident.suspect_id
+    ? await sql<{ id: string; alias: string; status: string }[]>`
+        select id, alias, status from suspects where id = ${incident.suspect_id} and org_id = ${incident.org_id}`
+    : [];
   const relatedGroup = buildLinkGroups([...groupCases], allLinks).find((group) => group.incidentIds.includes(id)) ?? null;
   const links = relatedGroup?.links.filter((link) => link.incident_a === id || link.incident_b === id) ?? [];
   const members = new Set(relatedGroup?.incidentIds);
@@ -121,6 +125,7 @@ export async function getIncidentDetail(id: string, session: Session) {
     links,
     relatedGroup,
     relatedCases,
+    suspect: suspect ?? null,
   };
 }
 

@@ -25,3 +25,20 @@ La representación de una red no demuestra una campaña única ni identidad pers
 ## Validación
 
 Las pruebas incluyen cadenas de cuatro casos, ciclos, conexiones descartadas que dividen grupos, miembros aislados, registros repetidos, separación por organización y origen, exclusión de compartición revocada y un detalle de tres casos donde el tercero está relacionado indirectamente. También comprueban que la evidencia revisada existente permanece intacta.
+
+## Criterios para proponer una conexión
+
+La IA propone una conexión entre dos casos de la misma organización y origen cuando la puntuación llega a 0,4, o cuando hay una coincidencia fuerte:
+
+- **Número de origen**: las dos llamadas vienen del mismo número (`caller_e164` o `caller_number_raw`), o el número que llamó en un caso se menciona en el otro. Cuenta como dato fuerte. `+51 946…` y `946…` se tratan como el mismo celular. Los números ocultos no se comparan, y el identificador de llamada puede falsificarse.
+- **Datos repetidos**: el mismo teléfono o cuenta mencionados en ambos (fuerte) o el mismo nombre (débil).
+- **Voz**: similitud de 65 % o más entre muestras utilizables del llamante, con referencia revisada y permiso.
+- **Patrón de señales**: 50 % o más de coincidencia en los tipos de señal.
+
+Puntuación sin voz: 0,6 × datos + 0,4 × patrón. Con voz: 0,45 × voz + 0,35 × datos + 0,2 × patrón. Las conexiones se recalculan al escribir por la API o con `POST /api/v1/links/recompute`; los casos con `simulated` desconocido no se recalculan.
+
+## Registro de presuntos estafadores
+
+Desde un grupo de la página Vínculos, un analista puede registrar los casos como obra de un posible mismo estafador y darle un alias (tabla `suspects`, columna `incidents.suspect_id`). El registro guarda notas, estado (en investigación o descartado), quién lo creó y deja una entrada en la bitácora de cada caso. Un caso pertenece a lo sumo a un registro, y la base impide asociar casos de otra organización. Si el grupo crece, la página ofrece agregar los casos nuevos al mismo registro.
+
+El alias sirve para llevar registro y seguimiento. No identifica a una persona ni prueba que todos los casos tengan el mismo autor. También se puede leer y escribir por la API: `/api/v1/suspects` y `PATCH /api/v1/incidents/{id}` con `suspect_id`.

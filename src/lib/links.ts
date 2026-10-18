@@ -1,12 +1,13 @@
 import "server-only";
 import type postgres from "postgres";
 import { db, newId, nowIso, type Db } from "./db";
+import { normalizeEntity } from "./heuristics";
 import { ENTITY_LABELS, type EntityKind, type LinkReason, type SignalType } from "./types";
 
 /**
  * Propone vínculos entre incidentes compartidos con la misma organización.
- * Combina similitud de voz, datos repetidos y coincidencia de tipos de señal
- * (la transcripción no se guarda ni se compara). Los
+ * Combina similitud de voz, el número de origen, datos repetidos y coincidencia
+ * de tipos de señal (la transcripción no se compara). Los
  * vínculos quedan "pendientes" hasta que un analista los confirma o descarta.
  */
 
@@ -14,21 +15,30 @@ interface Profile {
   id: string;
   signalTypes: Set<SignalType>;
   entities: { kind: EntityKind; normalized: string; value: string }[];
+  /** Número desde el que llamaron (identificador de llamada). */
+  caller: { normalized: string; value: string } | null;
 }
 
 /** Carga en lote las señales y los datos de varios incidentes. */
 async function loadProfiles(sql: Db, ids: string[]) {
-  const [types, entities] = await Promise.all([
+  const [types, entities, callers] = await Promise.all([
     sql<{ incident_id: string; type: SignalType }[]>`
       select distinct incident_id, type from signals where incident_id in ${sql(ids)}`,
     sql<{ incident_id: string; kind: EntityKind; normalized: string; value: string }[]>`
       select incident_id, kind, normalized, value from entities where incident_id in ${sql(ids)}`,
+    sql<{ id: string; caller: string | null }[]>`
+      select id, coalesce(caller_e164, caller_number_raw) as caller from incidents where id in ${sql(ids)}`,
   ]);
   const profiles = new Map<string, Profile>(
-    ids.map((id) => [id, { id, signalTypes: new Set(), entities: [] }]),
+    ids.map((id) => [id, { id, signalTypes: new Set(), entities: [], caller: null }]),
   );
   for (const t of types) profiles.get(t.incident_id)!.signalTypes.add(t.type);
   for (const e of entities) profiles.get(e.incident_id)!.entities.push(e);
+  for (const c of callers) {
+    const normalized = c.caller ? normalizeEntity("telefono", c.caller) : "";
+    // Números ocultos o demasiado cortos no permiten comparar.
+    if (normalized.length >= 7) profiles.get(c.id)!.caller = { normalized, value: c.caller! };
+  }
   return profiles;
 }
 
@@ -76,9 +86,28 @@ function compare(a: Profile, b: Profile, voiceSim: number | null) {
   }
 
   let entityScore = 0;
+  const phones = new Set<string>();
+  // El número de origen se compara con el de la otra llamada y con los teléfonos que se mencionaron en ella.
+  if (a.caller && b.caller && a.caller.normalized === b.caller.normalized) {
+    entityScore = 1;
+    phones.add(a.caller.normalized);
+    reasons.push({
+      kind: "dato_compartido",
+      detail: `Mismo número de origen: ${a.caller.value}. El identificador de llamada puede falsificarse.`,
+    });
+  }
+  for (const [x, y] of [[a, b], [b, a]] as const) {
+    if (!x.caller || phones.has(x.caller.normalized)) continue;
+    if (y.entities.some((e) => e.kind === "telefono" && e.normalized === x.caller!.normalized)) {
+      entityScore = 1;
+      phones.add(x.caller.normalized);
+      reasons.push({ kind: "dato_compartido", detail: `Teléfono repetido: ${x.caller.value} llamó en un caso y se mencionó en el otro.` });
+    }
+  }
   for (const ea of a.entities) {
     const match = b.entities.find((eb) => eb.kind === ea.kind && eb.normalized === ea.normalized);
     if (!match) continue;
+    if (ea.kind === "telefono" && phones.has(ea.normalized)) continue;
     if (STRONG_KINDS.includes(ea.kind)) {
       entityScore = 1;
       reasons.push({ kind: "dato_compartido", detail: `${ENTITY_LABELS[ea.kind]} repetido: ${ea.value}` });
@@ -148,7 +177,7 @@ export async function refreshLinksFor(incidentId: string, tx?: Db) {
     }
     const reasons = sql.json(result.reasons as unknown as postgres.JSONValue);
     const evidence = sql.json({
-      algorithm: "links-v3", metric: "cosine", voice_threshold: 0.8,
+      algorithm: "links-v4", metric: "cosine", voice_threshold: 0.8,
       sample_a: voice ? (a === incidentId ? voice.sample_a : voice.sample_b) : null,
       sample_b: voice ? (a === incidentId ? voice.sample_b : voice.sample_a) : null,
       model_id: voice?.model_id ?? null, model_version: voice?.model_version ?? null,

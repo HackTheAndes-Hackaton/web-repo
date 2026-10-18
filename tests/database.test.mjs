@@ -15,6 +15,7 @@ import { bindNetworkOrigin, getNetworkOrigin, inspectNetworkOrigin } from "../sr
 import { getVapiCall } from "../src/lib/api/vapi.ts";
 import { buildLinkGroups } from "../src/lib/link-groups.ts";
 import { getIncidentDetail, dashboardData, navCounts } from "../src/lib/repo.ts";
+import { createSuspect, listSuspects, SuspectError, unassignCase } from "../src/lib/suspects.ts";
 
 const initial = await fs.readFile(new URL('../supabase/migrations/20261017000000_init.sql', import.meta.url),'utf8');
 
@@ -45,13 +46,13 @@ test('actualiza una base existente sin perder datos ni la revisión anterior; re
     await db.exec(initial);
     await db.exec("insert into incidents(id,title) values ('old-a','Caso conservado'),('old-b','Otro'); insert into links(id,incident_a,incident_b,score,status,reviewed_by) values ('old-link','old-a','old-b',0.8,'confirmado','Revisor anterior')");
     const files=await applyMigrations(sql);
-    assert.deepEqual(files,['20261017010000_call_data_and_review_history.sql','20261017020000_audio_fragments.sql']);
+    assert.deepEqual(files,['20261017010000_call_data_and_review_history.sql','20261017020000_audio_fragments.sql','20261018000000_suspects.sql']);
     assert.equal((await sql`select title from incidents where id='old-a'`)[0].title,'Caso conservado');
     assert.equal((await sql`select simulated from incidents where id='old-a'`)[0].simulated,null);
     const [link]=await sql`select * from links where id='old-link'`;
     assert.equal(link.status,'confirmado'); assert.equal(link.reviewed_evidence.score,0.8);
     assert.deepEqual(await applyMigrations(sql),[]);
-    assert.equal((await sql`select count(*)::int n from app_meta.schema_migrations`)[0].n,3);
+    assert.equal((await sql`select count(*)::int n from app_meta.schema_migrations`)[0].n,4);
   });
 });
 
@@ -585,5 +586,54 @@ test('llamadas: extrae evidencia peruana, la recalcula sin duplicar y alimenta l
       assert.equal((await rep('987654321')).mentioned_in,2);
       assert.equal((await rep('900000000')).reports,0);
     } finally {delete globalThis.__sql;delete globalThis.__dbReady;}
+  });
+});
+
+test('vincula llamadas del mismo número de origen o con el número mencionado en otra, nunca números ocultos', async () => {
+  await database(async (_db,sql) => {
+    await fixture(sql);
+    await sql`update incidents set caller_e164='+51946189585' where id='a'`;
+    await sql`update incidents set caller_number_raw='946 189 585' where id='b'`;
+    await sql`insert into incidents(id,org_id,simulated,caller_e164) values ('c','org',false,'+51999111222'),('d','org',false,null),('e','org',false,null)`;
+    await sql`insert into entities(id,incident_id,kind,value,normalized) values ('ec','c','telefono','946189585','946189585')`;
+    await refreshLinksFor('a',sql);
+    const links=await sql`select incident_a,incident_b,reasons from links order by incident_b`;
+    assert.deepEqual(links.map((l)=>[l.incident_a,l.incident_b]),[['a','b'],['a','c']]);
+    assert.match(links[0].reasons[0].detail,/Mismo número de origen: \+51946189585/);
+    assert.match(links[1].reasons[0].detail,/llamó en un caso y se mencionó en el otro/);
+    assert.equal(links[0].reasons.filter((r)=>r.kind==='dato_compartido').length,1);
+    await refreshLinksFor('d',sql);
+    assert.equal((await sql`select count(*)::int n from links where 'd' in (incident_a,incident_b)`)[0].n,0);
+  });
+});
+
+test('registro de presuntos estafadores: alias único por organización, casos propios y bitácora', async () => {
+  await database(async (_db,sql) => {
+    await fixture(sql);
+    await sql`insert into incidents(id,org_id,simulated) values ('x','other',false)`;
+    globalThis.__sql=sql;
+    globalThis.__dbReady=Promise.resolve();
+    try {
+      const session={userId:'analyst',name:'Analista',role:'analista',orgId:'org'};
+      const id=await createSuspect(session,{alias:'  Falso abogado  Ramírez ',notes:'Mismo número',incidentIds:['a','b']});
+      const [suspect]=await sql`select alias,created_by from suspects where id=${id}`;
+      assert.equal(suspect.alias,'Falso abogado Ramírez');
+      assert.equal(suspect.created_by,'Analista');
+      assert.deepEqual((await sql`select id from incidents where suspect_id=${id} order by id`).map((r)=>r.id),['a','b']);
+      assert.equal((await sql`select count(*)::int n from actions where kind='suspect_assignment'`)[0].n,2);
+      await assert.rejects(createSuspect(session,{alias:'falso ABOGADO ramírez',incidentIds:['a']}),SuspectError);
+      await assert.rejects(createSuspect(session,{alias:'Otro',incidentIds:['x']}),/no pertenece/);
+      await assert.rejects(createSuspect(session,{alias:'',incidentIds:['a']}),SuspectError);
+      // La base impide asociar un caso a un registro de otra organización, aunque llegue por la API.
+      await sql`insert into suspects(id,org_id,alias) values ('ajeno','other','Ajeno')`;
+      await assert.rejects(updateRow(getResource('incidents'),'a',{suspect_id:'ajeno'}),(e)=>e.status===422||e.code==='23514');
+      await unassignCase(session,'b');
+      assert.equal((await sql`select suspect_id from incidents where id='b'`)[0].suspect_id,null);
+      const api=await createRows(getResource('suspects'),{org_id:'org',alias:'Banda del SAT'});
+      await updateRow(getResource('incidents'),'b',{suspect_id:api.data.id});
+      const listed=await listSuspects('org');
+      assert.deepEqual(listed.map((s)=>[s.alias,s.case_count]).sort(),[['Banda del SAT',1],['Falso abogado Ramírez',1]]);
+      assert.equal((await listSuspects('other'))[0].alias,'Ajeno');
+    } finally { delete globalThis.__sql; delete globalThis.__dbReady; }
   });
 });
