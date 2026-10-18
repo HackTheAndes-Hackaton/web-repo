@@ -1,6 +1,7 @@
 import "server-only";
 import { z } from "zod";
 import { RESOURCES, type ResourceDef } from "./resources";
+import { audioInput } from "./audio";
 
 /** Especificación OpenAPI 3.1 generada a partir de las definiciones de recursos. */
 
@@ -59,6 +60,17 @@ export function buildOpenApi(baseUrl: string) {
     },
   };
   const paths: Record<string, unknown> = {};
+  const audioOrg = {name:"X-Tiskz-Org",in:"header",required:true,schema:{type:"string"}};
+  const audioSession = {name:"session_id",in:"query",required:true,schema:{type:"string",format:"uuid"}};
+  paths["/audio-fragments"] = {
+    post:{tags:["Audio"],summary:"Guardar WAV autorizado (misma operación que MCP)",parameters:[audioOrg],
+      requestBody:{required:true,content:json(inputSchema(audioInput))},responses:{"201":{description:"Metadatos; request_id idempotente por sesión."},...errorResponses}},
+    get:{tags:["Audio"],summary:"Listar fragmentos autorizados de una sesión",parameters:[audioOrg,audioSession],responses:{"200":{description:"Hasta seis fragmentos; sin audio."},...errorResponses}},
+  };
+  paths["/audio-fragments/{id}"] = {
+    get:{tags:["Audio"],summary:"Recuperar WAV autorizado",parameters:[audioOrg,audioSession,{name:"id",in:"path",required:true,schema:{type:"string"}}],
+      responses:{"200":{description:"WAV PCM16 mono 16 kHz",content:{"audio/wav":{schema:{type:"string",format:"binary"}}}},...errorResponses}},
+  };
   paths["/mcp"] = {
     post: {
       tags:["MCP"], summary:"Herramientas de audio autorizado mediante MCP Streamable HTTP",
