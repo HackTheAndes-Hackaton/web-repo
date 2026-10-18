@@ -24,7 +24,7 @@ La web reutiliza el ID determinista de la sesión, comprueba organización, sesi
 
 El agente Maritime extrae señales e identificadores y redacta un resumen. La web vuelve a comprobar que cada valor, banco, billetera y moneda aparezca literalmente en el segmento señalado. Recalcula hashes y posiciones de origen a partir del texto recibido, rechaza citas largas de la conversación y no infiere identidad, culpabilidad ni IP original. Guarda el resultado con el contrato `pe-v1` y refresca las relaciones existentes. La narrativa requiere revisión humana antes de cualquier envío oficial.
 
-La web conserva proveedor, modelo informado, versión del contrato, limitaciones y tokens. Un error produce `failed`, nunca una conclusión de llamada segura. Un permiso revocado mientras se ejecuta el agente impide guardar los hallazgos. El dashboard muestra estado y resumen. Las versiones del informe y el PDF solicitado por el analista pertenecen a pasos posteriores.
+La web conserva proveedor, modelo informado, versión del contrato, limitaciones y tokens. Un error produce `failed`, nunca una conclusión de llamada segura. Un permiso revocado mientras se ejecuta el agente impide guardar los hallazgos. El dashboard muestra estado y resumen. El PDF solicitado por el analista pertenece al siguiente paso.
 
 ## Explicación de vínculos propuestos
 
@@ -32,8 +32,14 @@ Al cerrar un caso, la web compara automáticamente como máximo los dos vínculo
 
 Maritime clasifica el comportamiento como parecido, distinto o indeterminado y señala fragmentos literales de cada resumen y razones preexistentes. La web vuelve a validar esas referencias. La comparación se guarda en `links.evidence_snapshot.ai_explanation` con hash del contexto, versión, modelo y consumo; los reintentos idénticos no vuelven a invocar al modelo. El modelo no crea vínculos ni modifica puntuación o revisión. Cuando un analista confirma o descarta, la evidencia revisada se congela con la explicación disponible en ese momento. Si los datos deterministas cambian mientras el vínculo sigue pendiente, la explicación anterior deja de aplicarse y puede volver a generarse.
 
+## Versiones de informe
+
+En `/panel/vinculos`, un analista elige entre 2 y 20 casos ficticios y entre 1 y 50 vínculos que conecten todos los casos. Cada caso debe estar finalizado, tener un resumen Maritime completo y conservar los permisos de almacenamiento y compartición. Puede abrir una serie nueva o guardar otra versión de una serie existente. No hay una llamada adicional al modelo: el informe reúne los hallazgos ya producidos por Maritime y el estado de revisión existente.
+
+La migración `20261018010000_report_versions.sql` crea `report_versions`. Cada fila guarda título, resumen, selección explícita, hallazgos, entidades, vínculos, evidencia, explicación disponible, autor, fecha y hash SHA-256 del contenido. La tabla impide actualizar o borrar versiones; los cambios posteriores solo aparecen en una versión nueva. El panel `/panel/informes` muestra la versión más reciente de cada serie y `/panel/informes/[id]` permite revisar el contenido y el historial. Cuando se retira el permiso o se revoca la compartición de cualquiera de sus casos, la web deja de mostrar la versión afectada.
+
 ## Pruebas y límites
 
 `npm run test:db` usa una base temporal y no toca Supabase remoto. `npm run test:maritime` verifica el contrato HTTP con un agente simulado y la validación independiente de la web. `npm run test:report -- --mock` genera un ejemplo aislado sin red ni persistencia. Sin `--mock`, la prueba llama al agente privado con un caso ficticio, consume tokens y no escribe en el panel.
 
-Publicar la web antes de habilitar entregas del servicio de voz. No hay migraciones ni cambios móviles en este cambio. No existe una cola durable ni se conserva el texto para reanudar: una interrupción abrupta puede dejar `running`. La versión actual es una demo con claves de servicio y sesión de panel de demostración; no se han validado reportes reales, telefonía física ni envío a la PNP.
+Publicar la web antes de habilitar entregas del servicio de voz. Este paso agrega una migración para informes y no cambia la app móvil. No existe una cola durable ni se conserva el texto para reanudar: una interrupción abrupta puede dejar `running`. La versión actual es una demo con claves de servicio y sesión de panel de demostración; no se han validado reportes reales, telefonía física ni envío a la PNP.

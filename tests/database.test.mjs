@@ -51,13 +51,13 @@ test('actualiza una base existente sin perder datos ni la revisión anterior; re
     await db.exec(initial);
     await db.exec("insert into incidents(id,title) values ('old-a','Caso conservado'),('old-b','Otro'); insert into links(id,incident_a,incident_b,score,status,reviewed_by) values ('old-link','old-a','old-b',0.8,'confirmado','Revisor anterior')");
     const files=await applyMigrations(sql);
-    assert.deepEqual(files,['20261017010000_call_data_and_review_history.sql','20261017020000_audio_fragments.sql','20261018000000_suspects.sql']);
+    assert.deepEqual(files,['20261017010000_call_data_and_review_history.sql','20261017020000_audio_fragments.sql','20261018000000_suspects.sql','20261018010000_report_versions.sql']);
     assert.equal((await sql`select title from incidents where id='old-a'`)[0].title,'Caso conservado');
     assert.equal((await sql`select simulated from incidents where id='old-a'`)[0].simulated,null);
     const [link]=await sql`select * from links where id='old-link'`;
     assert.equal(link.status,'confirmado'); assert.equal(link.reviewed_evidence.score,0.8);
     assert.deepEqual(await applyMigrations(sql),[]);
-    assert.equal((await sql`select count(*)::int n from app_meta.schema_migrations`)[0].n,4);
+    assert.equal((await sql`select count(*)::int n from app_meta.schema_migrations`)[0].n,5);
   });
 });
 

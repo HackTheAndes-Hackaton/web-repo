@@ -22,6 +22,7 @@ async function Shell({ children }: { children: React.ReactNode }) {
           items: [
             { href: "/panel/casos", label: "Casos", icon: "cases", count: counts.cases },
             { href: "/panel/vinculos", label: "Vínculos", icon: "links", count: counts.groups },
+            { href: "/panel/informes", label: "Informes", icon: "reports" },
           ],
         },
         { title: "Configuración", items: [{ href: "/panel/integraciones", label: "Integraciones", icon: "key" }] },
