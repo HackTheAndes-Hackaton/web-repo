@@ -102,8 +102,8 @@ export async function createRows(def: ResourceDef, body: unknown, fixed: Row = {
 }
 
 export async function updateRow(def: ResourceDef, id: string, body: unknown) {
-  if (def.name === "actions" && (await getRow(def, id)).kind === "link_review") {
-    throw new ApiError(409, "immutable_review", "Las revisiones se conservan. Registra una revisión nueva en el vínculo.");
+  if (def.name === "actions" && ["link_review", "network_origin_binding", "network_origin_check"].includes(String((await getRow(def, id)).kind))) {
+    throw new ApiError(409, "immutable_review", "El registro de revisión o procedencia se conserva. Registra una nueva decisión o consulta.");
   }
   const patch = def.update.parse(body) as Row;
   const values = def.preparePatch ? def.preparePatch(patch) : patch;
@@ -111,8 +111,19 @@ export async function updateRow(def: ResourceDef, id: string, body: unknown) {
   if (!keys.length) throw new ApiError(400, "empty_patch", "No hay campos para actualizar.");
   const sql = await db();
   const storedValues = jsonValues(sql, def, values);
+  if (def.name === "incidents" && values.analysis_meta !== undefined) {
+    // Un nuevo análisis no puede borrar la procedencia recogida por el servidor.
+    storedValues.analysis_meta = sql`coalesce(analysis_meta, '{}'::jsonb) || ${sql.json(values.analysis_meta as postgres.JSONValue)}`;
+  }
+  const correlation = def.name === "incidents" && values.client_call_id !== undefined
+    ? sql`(analysis_meta #>> '{network_origin,binding,client_call_id}' is null or analysis_meta #>> '{network_origin,binding,client_call_id}'=${values.client_call_id as string | null})`
+    : sql`true`;
   const [row] = await sql<Row[]>`
-    update ${sql(def.table)} set ${sql(storedValues as never, keys)} where id = ${id} returning ${sql(def.columns)}`;
+    update ${sql(def.table)} set ${sql(storedValues as never, keys)} where id = ${id} and ${correlation} returning ${sql(def.columns)}`;
+  if (!row && def.name === "incidents" && values.client_call_id !== undefined) {
+    await getRow(def, id);
+    throw new ApiError(409, "binding_conflict", "El identificador Android ya está vinculado a una conferencia y no puede reemplazarse automáticamente.");
+  }
   if (!row) throw notFound(def.title);
   sideEffects(def, [row]);
   return row;
@@ -121,8 +132,8 @@ export async function updateRow(def: ResourceDef, id: string, body: unknown) {
 export async function deleteRow(def: ResourceDef, id: string) {
   const sql = await db();
   const before = await getRow(def, id);
-  if (def.name === "actions" && before.kind === "link_review") {
-    throw new ApiError(409, "immutable_review", "Las revisiones se conservan en el historial.");
+  if (def.name === "actions" && ["link_review", "network_origin_binding", "network_origin_check"].includes(String(before.kind))) {
+    throw new ApiError(409, "immutable_review", "Las revisiones y consultas de procedencia se conservan en el historial.");
   }
   await sql`delete from ${sql(def.table)} where id = ${id}`;
   sideEffects(def, [before], true);

@@ -11,6 +11,10 @@ import { getResource } from "../src/lib/api/resources.ts";
 import { seedDemoData } from "../src/lib/seed.ts";
 import { buildOpenApi } from "../src/lib/api/openapi.ts";
 import { createRows, updateRow, deleteRow } from "../src/lib/api/crud.ts";
+import { bindNetworkOrigin, getNetworkOrigin, inspectNetworkOrigin } from "../src/lib/api/network-origin.ts";
+import { getVapiCall } from "../src/lib/api/vapi.ts";
+import { buildLinkGroups } from "../src/lib/link-groups.ts";
+import { getIncidentDetail, dashboardData, navCounts } from "../src/lib/repo.ts";
 
 const initial = await fs.readFile(new URL('../supabase/migrations/20261017000000_init.sql', import.meta.url),'utf8');
 
@@ -19,7 +23,11 @@ async function database(run) {
   const server = new PGLiteSocketServer({ db, host: '127.0.0.1', port: 0 });
   await server.start();
   const address = server.getServerConn();
-  const sql = postgres({ host:'127.0.0.1', port:Number(address.split(':').at(-1)), username:'postgres', database:'postgres', prepare:false, max:1, onnotice:()=>{} });
+  const sql = postgres({ host:'127.0.0.1', port:Number(address.split(':').at(-1)), username:'postgres', database:'postgres', prepare:false, max:1, onnotice:()=>{},
+    // La aplicación recibe fechas ISO; reproducir ese contrato en la base temporal.
+    types:{isoDate:{to:1184,from:[1082,1114,1184],serialize:value=>value instanceof Date?value.toISOString():value,
+      parse:value=>new Date(value.replace(' ','T').replace(/([+-]\d\d)$/,'$1:00')).toISOString()}},
+  });
   try { await run(db,sql); }
   finally { await sql.end(); await server.stop(); await db.close(); }
 }
@@ -268,6 +276,214 @@ test('HTTP audio autentica el servicio y comparte permisos, datos e idempotencia
       await sql`update incidents set consent_snapshot='{"voice_storage":false}' where id=${saved.incident_id}`;
       assert.equal((await getAudio(request(),ctx)).status,404);
       assert.equal((await postAudio(upload())).status,403);
+    } finally {delete globalThis.__sql;delete globalThis.__dbReady;}
+  });
+});
+
+const networkInput = {
+  client_call_id: 'android-test',
+  conference_request_id: '30000000-0000-4000-8000-000000000001',
+  vapi_call_id: '40000000-0000-4000-8000-000000000001',
+  route: 'android_sim_conference',
+};
+async function networkFixture(sql) {
+  await fixture(sql);
+  await sql`update incidents set client_call_id='android-test',provider_call_id='carrier-existing',caller_e164='+51900000001',
+    consent_snapshot=consent_snapshot || '{"network_metadata_storage":true}'::jsonb,
+    analysis_meta='{"model":"existing-model"}' where id='a'`;
+}
+
+test('vincula llamadas con IDs explícitos, reintentos idempotentes y sin confundir el número original', async () => {
+  await database(async (_db,sql) => {
+    await networkFixture(sql);
+    await assert.rejects(bindNetworkOrigin('other','a',networkInput,'service',sql),e=>e.status===404);
+    await assert.rejects(bindNetworkOrigin('org','b',networkInput,'service',sql),e=>e.status===403);
+    await assert.rejects(bindNetworkOrigin('org','a',{...networkInput,client_call_id:'wrong'},'service',sql),e=>e.code==='call_correlation_mismatch');
+    const origin=await bindNetworkOrigin('org','a',networkInput,'service',sql);
+    assert.deepEqual(await bindNetworkOrigin('org','a',networkInput,'service',sql),origin);
+    assert.equal((await sql`select count(*)::int n from actions where kind='network_origin_binding'`)[0].n,1);
+    await assert.rejects(bindNetworkOrigin('org','a',{...networkInput,vapi_call_id:'40000000-0000-4000-8000-000000000002'},'service',sql),e=>e.code==='binding_conflict');
+    await sql`update incidents set client_call_id='android-other',consent_snapshot=consent_snapshot || '{"network_metadata_storage":true}'::jsonb where id='b'`;
+    await assert.rejects(bindNetworkOrigin('org','b',{...networkInput,client_call_id:'android-other'},'service',sql),e=>e.code==='call_already_bound');
+    const call=async()=>({id:networkInput.vapi_call_id,phoneCallTransport:'sip',phoneCallProvider:'twilio',customer:{number:'+51900000002'},messages:['contenido que no se conserva'],ip:'203.0.113.10',metadata:{callerIp:'203.0.113.11'}});
+    const checked=await inspectNetworkOrigin('org','a','service',sql,call);
+    assert.equal(checked.inspection.availability,'unavailable');
+    assert.equal(checked.inspection.endpoint_ip,null);
+    assert.equal(checked.inspection.call.customer.number,'+51900000002');
+    assert.equal('ip' in checked.inspection.call,false);
+    assert.equal('messages' in checked.inspection.call,false);
+    const [incident]=await sql`select * from incidents where id='a'`;
+    assert.equal(incident.caller_e164,'+51900000001');
+    assert.equal(incident.provider_call_id,'carrier-existing');
+    assert.equal(incident.analysis_meta.model,'existing-model');
+    assert.equal(JSON.stringify(incident.analysis_meta).includes('203.0.113.'),false);
+    assert.equal((await sql`select count(*)::int n from actions where kind='network_origin_check'`)[0].n,1);
+    assert.deepEqual(await getNetworkOrigin('org','a',sql),checked);
+  });
+});
+
+test('revalida autorización tras consultar Vapi y conserva el resultado anterior ante fallos', async () => {
+  await database(async (_db,sql) => {
+    await networkFixture(sql);
+    await bindNetworkOrigin('org','a',networkInput,'service',sql);
+    await assert.rejects(inspectNetworkOrigin('org','a','service',sql,async()=>({id:'40000000-0000-4000-8000-000000000002'})),e=>e.code==='vapi_invalid_response');
+    await assert.rejects(inspectNetworkOrigin('org','a','service',sql,async()=>{throw Error('fallo controlado');}));
+    assert.equal((await getNetworkOrigin('org','a',sql)).inspection,null);
+    const checked=await inspectNetworkOrigin('org','a','service',sql,async()=>({id:networkInput.vapi_call_id}));
+    await assert.rejects(inspectNetworkOrigin('org','a','service',sql,async()=>{throw Error('fallo controlado');}));
+    assert.deepEqual(await getNetworkOrigin('org','a',sql),checked);
+    await assert.rejects(inspectNetworkOrigin('org','a','service',sql,async()=>{
+      await sql`update incidents set consent_snapshot=consent_snapshot || '{"network_metadata_storage":false}'::jsonb where id='a'`;
+      return {id:networkInput.vapi_call_id};
+    }),e=>e.status===403);
+    await assert.rejects(getNetworkOrigin('org','a',sql),e=>e.status===403);
+    assert.equal((await sql`select count(*)::int n from actions where kind='network_origin_check'`)[0].n,1);
+  });
+});
+
+test('el adaptador Vapi limita origen, datos, respuesta y errores; nunca fabrica una IP', async () => {
+  const id=networkInput.vapi_call_id;
+  let requested=0;
+  const fetcher=async(url,options)=>{
+    requested++;
+    assert.equal(url,`https://api.vapi.ai/call/${id}`);
+    assert.equal(options.redirect,'error'); assert.equal(options.cache,'no-store');
+    return Response.json({id,phoneCallTransport:'sip',customer:{number:'+51900000002',name:'no guardar'},ip:'203.0.113.1',messages:['no guardar'],monitor:{controlUrl:'no guardar'}});
+  };
+  await assert.rejects(getVapiCall(id,{apiKey:'',fetcher}),e=>e.code==='vapi_not_configured');
+  assert.equal(requested,0);
+  await assert.rejects(getVapiCall('https://untrusted.example',{apiKey:'test-key',fetcher}));
+  assert.equal(requested,0);
+  assert.deepEqual(await getVapiCall(id,{apiKey:'test-key',fetcher}),{id,phoneCallTransport:'sip',customer:{number:'+51900000002'}});
+  for (const status of [401,404,429,500]) await assert.rejects(getVapiCall(id,{apiKey:'test-key',fetcher:async()=>new Response('cuerpo privado',{status})}),e=>e.status===502 && !e.message.includes('privado'));
+  await assert.rejects(getVapiCall(id,{apiKey:'test-key',fetcher:async()=>Response.json({id:'40000000-0000-4000-8000-000000000002'})}),e=>e.code==='vapi_invalid_response');
+  await assert.rejects(getVapiCall(id,{apiKey:'test-key',fetcher:async()=>new Response('x'.repeat(1024*1024+1))}),e=>e.code==='vapi_invalid_response');
+});
+
+test('la API de análisis no falsifica ni borra la procedencia técnica con una actualización', async () => {
+  await database(async (_db,sql) => {
+    await networkFixture(sql);
+    globalThis.__sql=sql; globalThis.__dbReady=Promise.resolve();
+    try {
+      const def=getResource('incidents');
+      assert.equal(def.create.safeParse({analysis_meta:{network_origin:{endpoint_ip:'203.0.113.1'}}}).success,false);
+      assert.equal(def.update.safeParse({analysis_meta:{network_origin:null}}).success,false);
+      await bindNetworkOrigin('org','a',networkInput,'service',sql);
+      const before=await getNetworkOrigin('org','a',sql);
+      const row=await updateRow(def,'a',{analysis_meta:{model:'new-model'},summary:'Resumen nuevo'});
+      assert.equal(row.analysis_meta.model,'new-model');
+      assert.deepEqual(row.analysis_meta.network_origin,before);
+      await assert.rejects(updateRow(def,'a',{client_call_id:'other'}),e=>e.code==='binding_conflict');
+      const [action]=await sql`select id from actions where kind='network_origin_binding'`;
+      await assert.rejects(deleteRow(getResource('actions'),action.id),e=>e.code==='immutable_review');
+      await assert.rejects(updateRow(getResource('actions'),action.id,{detail:'reemplazo'}),e=>e.code==='immutable_review');
+      const api=buildOpenApi('http://localhost:3000');
+      assert.ok(api.paths['/incidents/{id}/network-origin'].put);
+      assert.ok(api.components.schemas.NetworkBinding.properties.vapi_call_id);
+    } finally {delete globalThis.__sql;delete globalThis.__dbReady;}
+  });
+});
+
+test('HTTP procedencia exige clave, organización y permiso y no permite cachear el resultado', async () => {
+  const {getOrigin,putOrigin,postOrigin}=await import('../src/lib/api/network-origin-http.ts');
+  const {createHash}=await import('node:crypto');
+  await database(async (_db,sql) => {
+    await networkFixture(sql);
+    globalThis.__sql=sql; globalThis.__dbReady=Promise.resolve();
+    try {
+      const key='tkz_synthetic_network_http';
+      await sql`insert into api_keys(id,name,prefix,key_hash) values ('network-key','Prueba red','tkz_synthetic',${createHash('sha256').update(key).digest('hex')})`;
+      const headers={'Authorization':`Bearer ${key}`,'X-Tiskz-Org':'org','Content-Type':'application/json'};
+      const request=(method='GET',h=headers)=>new Request('https://panel.test/api/v1/incidents/a/network-origin',{
+        method,headers:h,...(method==='PUT'?{body:JSON.stringify(networkInput)}:{}),
+      });
+      const ctx={params:Promise.resolve({id:'a'})};
+      const denied=await getOrigin(request('GET',{}),ctx);
+      assert.equal(denied.status,401);assert.equal(denied.headers.get('Cache-Control'),'no-store');
+      assert.equal((await getOrigin(request('GET',{Authorization:`Bearer ${key}`}),ctx)).status,400);
+      assert.equal((await getOrigin(request('GET',{...headers,'X-Tiskz-Org':'other'}),ctx)).status,404);
+      assert.equal((await (await getOrigin(request(),ctx)).json()).data,null);
+      assert.equal((await postOrigin(request('POST'),ctx)).status,409);
+      const bound=await putOrigin(request('PUT'),ctx);
+      assert.equal(bound.status,200);assert.equal(bound.headers.get('Cache-Control'),'no-store');
+      assert.equal((await bound.json()).data.binding.vapi_call_id,networkInput.vapi_call_id);
+      const stored=await getOrigin(request(),ctx);
+      assert.equal((await stored.json()).data.inspection,null);
+      await sql`update incidents set sharing_revoked_at=now() where id='a'`;
+      assert.equal((await getOrigin(request(),ctx)).status,403);
+    } finally {delete globalThis.__sql;delete globalThis.__dbReady;}
+  });
+});
+
+const groupCase = (id, overrides={}) => ({id,org_id:'org',simulated:false,sharing_revoked_at:null,...overrides});
+const groupLink = (id,a,b,status='pendiente') => ({id,incident_a:a,incident_b:b,status});
+
+test('agrupa N casos conectados sin inventar relaciones directas ni una certeza para todo el grupo',()=>{
+  const cases=['a','b','c','d'].map(id=>groupCase(id));
+  const links=[groupLink('ab','a','b','confirmado'),groupLink('bc','b','c'),groupLink('cd','c','d')];
+  for(const link of links) Object.freeze(link);
+  Object.freeze(links);
+  const [group]=buildLinkGroups(cases,links);
+  assert.deepEqual(group.incidentIds,['a','b','c','d']);
+  assert.deepEqual(group.links.map(link=>link.id),['ab','bc','cd']);
+  assert.equal(group.confirmedCount,1);assert.equal(group.pendingCount,2);
+  assert.equal('score' in group,false);
+  assert.equal(group.links.some(link=>link.incident_a==='a'&&link.incident_b==='c'),false);
+  assert.equal(group.links[0],links[0]);
+});
+
+test('descartar una conexión puente divide la red y los aislados no forman grupos',()=>{
+  const cases=['a','b','c','d','isolated'].map(id=>groupCase(id));
+  const links=[groupLink('ab','a','b'),groupLink('bc','b','c','descartado'),groupLink('cd','c','d')];
+  assert.deepEqual(buildLinkGroups(cases,links).map(group=>group.incidentIds),[['a','b'],['c','d']]);
+  assert.deepEqual(buildLinkGroups(cases,[]),[]);
+});
+
+test('los grupos no mezclan organizaciones, datos de demo, origen desconocido ni casos revocados',()=>{
+  const cases=[groupCase('a'),groupCase('b'),groupCase('demo',{simulated:true}),groupCase('unknown',{simulated:null}),
+    groupCase('other',{org_id:'other'}),groupCase('private',{org_id:null}),groupCase('revoked',{sharing_revoked_at:'2026-10-17T12:00:00Z'})];
+  const links=[groupLink('ab','a','b'),...['demo','unknown','other','private','revoked','missing'].map(id=>groupLink(id,'a',id))];
+  assert.deepEqual(buildLinkGroups(cases,links).map(group=>group.incidentIds),[['a','b']]);
+});
+
+test('una red cíclica o entradas repetidas no duplican miembros ni conexiones',()=>{
+  const cases=['c','b','a'].map(id=>groupCase(id));
+  const links=[groupLink('ab','a','b'),groupLink('bc','b','c'),groupLink('ca','c','a'),groupLink('ab','a','b'),groupLink('self','a','a')];
+  const [group]=buildLinkGroups(cases,links);
+  assert.deepEqual(group.incidentIds,['a','b','c']);
+  assert.equal(group.links.length,3);
+  assert.equal(group.anchor,'grupo-a');
+});
+
+test('el detalle muestra el grupo completo con casos indirectos y conserva las revisiones existentes',async()=>{
+  await database(async(_db,sql)=>{
+    await fixture(sql);
+    await sql`insert into incidents(id,org_id,simulated,title) values ('c','org',false,'Tercer caso')`;
+    await sql`insert into entities(id,incident_id,kind,value,normalized) values
+      ('ga','a','cuenta','111','111'),('gb','b','cuenta','111','111'),
+      ('gb2','b','telefono','222','222'),('gc','c','telefono','222','222')`;
+    await refreshLinksFor('a',sql);await refreshLinksFor('c',sql);
+    const [ab]=await sql`update links set status='confirmado',reviewed_by_id='analyst',reviewed_by='Analista' where incident_a='a' and incident_b='b' returning *`;
+    globalThis.__sql=sql;globalThis.__dbReady=Promise.resolve();
+    try {
+      const session={userId:'analyst',name:'Analista',role:'analista',orgId:'org'};
+      const detail=await getIncidentDetail('a',session);
+      assert.deepEqual(detail.relatedGroup.incidentIds,['a','b','c']);
+      assert.equal(detail.relatedGroup.links.length,2);
+      assert.deepEqual(detail.relatedCases.map(item=>[item.id,item.direct]),[['b',true],['c',false]]);
+      assert.equal(detail.links.length,1);
+      assert.equal(detail.relatedGroup.confirmedCount,1);assert.equal(detail.relatedGroup.pendingCount,1);
+      assert.deepEqual(await navCounts('org'),{cases:3,links:2,groups:1});
+      const dashboard=await dashboardData('org');
+      assert.equal(dashboard.kpis.groups,1);assert.equal(dashboard.kpis.links,2);
+      const [after]=await sql`select * from links where id=${ab.id}`;
+      assert.deepEqual(after.reviewed_evidence,ab.reviewed_evidence);assert.equal(after.evidence_version,ab.evidence_version);
+      await sql`update links set status='descartado',reviewed_by_id='analyst' where incident_a='b' and incident_b='c'`;
+      const split=await getIncidentDetail('a',session);
+      assert.deepEqual(split.relatedGroup.incidentIds,['a','b']);
+      assert.deepEqual(split.relatedCases.map(item=>item.id),['b']);
+      assert.equal((await getIncidentDetail('c',session)).relatedGroup,null);
+      assert.equal(await getIncidentDetail('a',{...session,orgId:'other'}),null);
     } finally {delete globalThis.__sql;delete globalThis.__dbReady;}
   });
 });

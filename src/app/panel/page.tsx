@@ -145,9 +145,9 @@ export default async function Dashboard() {
         <Kpi
           icon={<Network size={18} aria-hidden />}
           tone="good"
-          label="Vínculos detectados"
-          value={data.kpis.links}
-          footer={<span className="text-xs text-muted">Posibles campañas</span>}
+          label="Grupos de casos"
+          value={data.kpis.groups}
+          footer={<span className="text-xs text-muted">{data.kpis.links} conexiones entre casos</span>}
         />
       </section>
 
@@ -245,7 +245,7 @@ export default async function Dashboard() {
           {data.incidents.length ? <LinkGraph incidents={data.incidents} links={data.links} /> : <Empty>No hay casos.</Empty>}
         </Card>
         <div className="space-y-6">
-          <Card title="Vínculos más fuertes">
+          <Card title="Conexiones más fuertes">
             {strongest.length ? (
               <ul className="space-y-3">
                 {strongest.map((l) => (

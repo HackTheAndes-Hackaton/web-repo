@@ -7,6 +7,7 @@ import { channelLabel, scamTypeLabel } from "@/lib/types";
 import { EntityTable, RiskMeter, SignalList } from "./incident-parts";
 import { LinkReasons } from "./links-ui";
 import { PrintButton } from "./PrintButton";
+import { NetworkOriginPanel } from "./NetworkOriginPanel";
 import { CallerNumber, Card, IconBubble, PageHeader, Pill, RiskBadge, ScamTypeChip, VerdictBadge } from "./ui";
 
 export type ReportTab = "ia" | "datos";
@@ -55,7 +56,7 @@ function Fact({
 const DIRECTION = { incoming: "Llamada entrante", outgoing: "Llamada saliente" };
 
 export function IncidentReport({ detail, tab = "ia" }: { detail: IncidentDetail; tab?: ReportTab }) {
-  const { incident, signals, entities, actions, voiceSamples, owner, sharedOrg, links } = detail;
+  const { incident, signals, entities, actions, voiceSamples, owner, sharedOrg, links, relatedGroup, relatedCases } = detail;
   const here = `/panel/casos/${incident.id}`;
   const number = fmtPhone(incident.caller_e164 ?? incident.caller_number_raw);
   const reasons = Array.isArray(incident.risk_reasons) ? incident.risk_reasons.filter((r) => typeof r === "string") : [];
@@ -148,7 +149,7 @@ export function IncidentReport({ detail, tab = "ia" }: { detail: IncidentDetail;
               </p>
             )}
             <p className="mt-4 text-xs text-muted">
-              Todo lo de este reporte lo generó la IA. El número mostrado o un nombre pueden ser falsos: puede apoyar la
+              El análisis de riesgo lo generó la IA; los metadatos técnicos indican su fuente. El número mostrado o un nombre pueden ser falsos: puede apoyar la
               preparación de una denuncia, pero no es una denuncia ni una identificación verificada.
             </p>
           </section>
@@ -177,9 +178,12 @@ export function IncidentReport({ detail, tab = "ia" }: { detail: IncidentDetail;
           </nav>
 
           {tab === "datos" && (
+            <>
             <Card title="Números, cuentas y nombres">
               <EntityTable entities={entities} />
             </Card>
+            <NetworkOriginPanel incident={incident} />
+            </>
           )}
 
           {tab === "ia" && <SignalList signals={signals} />}
@@ -206,31 +210,36 @@ export function IncidentReport({ detail, tab = "ia" }: { detail: IncidentDetail;
             </dl>
           </SideSection>
 
-          <SideSection title={`Casos relacionados (${links.length})`}>
-            {links.length ? (
+          <SideSection title={`Red de casos (${relatedGroup?.incidentIds.length ?? 0})`}>
+            {relatedGroup ? (
+              <>
+              <p className="mb-3 text-xs text-muted">{relatedGroup.incidentIds.length} casos, incluido este · {relatedGroup.links.length} conexiones.</p>
+              <Link href={`/panel/vinculos#${relatedGroup.anchor}`} className="mb-3 inline-block text-sm font-semibold text-accent-ink hover:underline">Ver el grupo completo</Link>
               <ul className="space-y-3">
-                {links.map((l) => {
-                  const isA = l.incident_a === incident.id;
-                  const otherId = isA ? l.incident_b : l.incident_a;
+                {relatedCases.map((other) => {
+                  const l = links.find((link) => link.incident_a === other.id || link.incident_b === other.id);
+                  const isA = l?.incident_a === incident.id;
                   return (
-                    <li key={l.id}>
-                      <Link href={`/panel/casos/${otherId}`} className="block rounded-2xl bg-surface-2 p-4 hover:bg-accent-wash">
+                    <li key={other.id}>
+                      <Link href={`/panel/casos/${other.id}`} className="block rounded-2xl bg-surface-2 p-4 hover:bg-accent-wash">
                         <div className="flex items-start justify-between gap-2">
                           <span className="flex gap-1.5 text-sm font-semibold">
                             <FolderOpen size={14} className="mt-0.5 shrink-0 text-muted" aria-hidden />
-                            {isA ? l.b_title : l.a_title}
+                            {other.title}
                           </span>
-                          <span className="tabular shrink-0 text-sm font-bold text-accent-ink">{pct(l.score)}</span>
+                          {l && <span className="tabular shrink-0 text-sm font-bold text-accent-ink">{pct(l.score)}</span>}
                         </div>
                         <div className="mt-2 flex flex-wrap gap-1.5">
-                          <ScamTypeChip type={isA ? l.b_scam_type : l.a_scam_type} />
+                          <span className="text-xs font-medium text-accent-ink">{other.direct ? "Conexión directa" : "Conexión indirecta"}</span>
+                          {l && <ScamTypeChip type={isA ? l.b_scam_type : l.a_scam_type} />}
                         </div>
-                        <LinkReasons reasons={l.reasons.filter((r) => !/guion/i.test(r.detail))} />
+                        {l ? <LinkReasons reasons={l.reasons.filter((r) => !/guion/i.test(r.detail))} /> : <p className="mt-2 text-xs text-muted">Relacionado a través de otros casos del grupo; sin una conexión directa registrada con este caso.</p>}
                       </Link>
                     </li>
                   );
                 })}
               </ul>
+              </>
             ) : (
               <p className="text-sm text-muted">La IA no encontró casos relacionados.</p>
             )}

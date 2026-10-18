@@ -8,6 +8,7 @@ export async function GET(request: Request) {
     version: "1.0.0",
     auth: "Authorization: Bearer <clave> o X-API-Key: <clave>. Las claves se crean en el panel → Integraciones.",
     openapi: `${base}/openapi.json`,
+    network_origin: `${base}/incidents/{id}/network-origin`,
     resources: RESOURCES.map((r) => ({
       name: r.name,
       title: r.title,

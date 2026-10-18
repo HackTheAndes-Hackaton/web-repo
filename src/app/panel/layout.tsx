@@ -10,7 +10,7 @@ async function Shell({ children }: { children: React.ReactNode }) {
   const session = await requireSession("analista");
   const [org, counts] = session.orgId
     ? await Promise.all([getOrg(session.orgId), navCounts(session.orgId)])
-    : [undefined, { cases: 0, links: 0 }];
+    : [undefined, { cases: 0, links: 0, groups: 0 }];
   return (
     <AppShell
       session={session}
@@ -21,7 +21,7 @@ async function Shell({ children }: { children: React.ReactNode }) {
           title: "Investigación",
           items: [
             { href: "/panel/casos", label: "Casos", icon: "cases", count: counts.cases },
-            { href: "/panel/vinculos", label: "Vínculos", icon: "links", count: counts.links },
+            { href: "/panel/vinculos", label: "Vínculos", icon: "links", count: counts.groups },
           ],
         },
         { title: "Configuración", items: [{ href: "/panel/integraciones", label: "Integraciones", icon: "key" }] },

@@ -15,7 +15,7 @@ function RiskNode({ x, y, level, size = 8 }: { x: number; y: number; level: Risk
   return <circle cx={x} cy={y} r={size} {...common} />;
 }
 
-/** Red de casos: cada línea es un vínculo detectado por la IA; más gruesa = relación más fuerte. */
+/** Una red puede contener N casos. Cada línea conserva la revisión de su propia conexión. */
 export function LinkGraph({
   incidents,
   links,
@@ -59,8 +59,9 @@ export function LinkGraph({
               stroke={strong ? "var(--accent)" : "var(--brand-3)"}
               strokeWidth={1.5 + l.score * 3}
               strokeLinecap="round"
+              strokeDasharray={l.status === "pendiente" ? "5 5" : undefined}
             >
-              <title>{`Coincidencia ${pct(l.score)}`}</title>
+              <title>{`${a.inc.title} ↔ ${b.inc.title} · coincidencia ${pct(l.score)} · ${l.status === "confirmado" ? "conexión confirmada por analista" : "pendiente de revisión"}`}</title>
             </line>
           );
         })}
@@ -89,6 +90,7 @@ export function LinkGraph({
         })}
       </svg>
       <figcaption className="mt-2 flex flex-wrap gap-4 text-xs text-fg-2">
+        <span>Discontinua: pendiente · Continua: confirmada por analista</span>
         <span className="flex items-center gap-1.5">
           <svg width="22" height="6" aria-hidden>
             <line x1="1" y1="3" x2="21" y2="3" stroke="var(--accent)" strokeWidth="4" strokeLinecap="round" />

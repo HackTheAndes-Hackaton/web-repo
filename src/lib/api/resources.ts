@@ -50,6 +50,9 @@ const text = (max = 2000) => z.string().trim().min(1).max(max);
 const datetime = z.iso.datetime({ offset: true });
 const nullable = <T extends z.ZodType>(s: T) => s.nullable().default(null);
 const metadata = z.record(z.string(), z.unknown());
+const incidentMetadata = metadata.refine((value) => !Object.hasOwn(value, "network_origin"), {
+  message: "network_origin se registra mediante /incidents/{id}/network-origin, no desde el análisis de IA.",
+});
 function withDefaults(shape: Record<string, z.ZodType>, values: Record<string, unknown> = {}) {
   return Object.fromEntries(Object.entries(shape).map(([key, schema]) => [key, schema.default(key in values ? values[key] : null)]));
 }
@@ -130,7 +133,7 @@ const callData = {
   user_feedback: z.enum(["safe", "scam", "unsure"]).nullable(),
   user_feedback_at: datetime.nullable(),
   consent_snapshot: metadata,
-  analysis_meta: metadata,
+  analysis_meta: incidentMetadata,
   shared_at: datetime.nullable(),
   sharing_revoked_at: datetime.nullable(),
 };

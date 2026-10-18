@@ -2,6 +2,7 @@ import "server-only";
 import { z } from "zod";
 import { RESOURCES, type ResourceDef } from "./resources";
 import { audioInput } from "./audio";
+import { networkBindingInput, networkOriginSchema } from "../network-origin";
 
 /** Especificación OpenAPI 3.1 generada a partir de las definiciones de recursos. */
 
@@ -60,6 +61,23 @@ export function buildOpenApi(baseUrl: string) {
     },
   };
   const paths: Record<string, unknown> = {};
+  schemas.NetworkOrigin = inputSchema(networkOriginSchema);
+  schemas.NetworkBinding = inputSchema(networkBindingInput);
+  const networkParameters = [
+    { name: "id", in: "path", required: true, schema: { type: "string" } },
+    { name: "X-Tiskz-Org", in: "header", required: true, schema: { type: "string" } },
+  ];
+  const networkResponse = { "200": { description: "Procedencia de la llamada; null si aún no se vinculó. La conferencia no aporta una IP original verificable.", content: json({ type: "object", properties: { data: { anyOf: [ref("NetworkOrigin"), { type: "null" }] } } }) }, ...errorResponses,
+    "403": { description: "Conservación no autorizada o compartición revocada." }, "409": { description: "Identificadores incompatibles o llamada vinculada a otro incidente." },
+  };
+  paths["/incidents/{id}/network-origin"] = {
+    get: { tags: ["Procedencia"], summary: "Leer metadatos de origen autorizados", parameters: networkParameters, responses: networkResponse },
+    put: { tags: ["Procedencia"], summary: "Vincular conferencia Android con Vapi", description: "Solo servidor. client_call_id debe coincidir con el incidente. Requiere consent_snapshot.network_metadata_storage=true. Reintentos idénticos no duplican el registro.", parameters: networkParameters,
+      requestBody: { required: true, content: json(ref("NetworkBinding")) }, responses: networkResponse },
+    post: { tags: ["Procedencia"], summary: "Consultar metadatos de la llamada vinculada en Vapi", description: "Usa VAPI_PRIVATE_KEY en el servidor. No consulta GeoIP ni interpreta IPs de proxies como direcciones del interlocutor.", parameters: networkParameters,
+      responses: { ...networkResponse, "502": { description: "Error o respuesta inválida del proveedor; conserva la última consulta correcta." }, "503": { description: "Falta configurar VAPI_PRIVATE_KEY." } } },
+  };
+
   const audioOrg = {name:"X-Tiskz-Org",in:"header",required:true,schema:{type:"string"}};
   const audioSession = {name:"session_id",in:"query",required:true,schema:{type:"string",format:"uuid"}};
   paths["/audio-fragments"] = {

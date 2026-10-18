@@ -1,4 +1,5 @@
-@import "tailwindcss";
+/* Limita las dependencias del escaneo a src; excluye .next y sus registros. */
+@import "tailwindcss" source("../");
 
 /*
  * Misma paleta que la app móvil de Tiskz:

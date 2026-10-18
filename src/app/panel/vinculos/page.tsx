@@ -5,7 +5,8 @@ import { LinkGraph } from "@/components/LinkGraph";
 import { CallerNumber, Card, Empty, IconBubble, PageHeader, RiskBadge, ScamTypeChip } from "@/components/ui";
 import { fmtDateTime, pct } from "@/lib/format";
 import { requireAnalyst } from "@/lib/panel";
-import { caseCode, listLinks, listSharedIncidents, type LinkView } from "@/lib/repo";
+import { caseCode, listLinks, listSharedIncidents, type LinkView, type IncidentSummary } from "@/lib/repo";
+import { buildLinkGroups, type LinkGroup } from "@/lib/link-groups";
 import type { LinkReason, RiskLevel } from "@/lib/types";
 
 /** Las razones antiguas basadas en el guion de la transcripción ya no se muestran. */
@@ -74,50 +75,35 @@ function ReasonRow({ icon, tone, title, children }: { icon: ReactNode; tone: "ac
   );
 }
 
-function LinkCard({ l }: { l: LinkView }) {
+function ConnectionEvidence({ l }: { l: LinkView }) {
   const s = strength(l.score);
   const reasons = visibleReasons(l.reasons);
   return (
-    <li className="rounded-3xl bg-surface p-6 shadow-soft sm:p-7">
+    <li className="rounded-2xl border border-line p-4 sm:p-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
           <span className="tabular text-[30px] font-bold leading-none text-accent-ink">{pct(l.score)}</span>
           <div>
             <span className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${s.cls}`}>{s.label}</span>
-            <div className="mt-1 text-xs text-muted">Coincidencia calculada por la IA</div>
+            <div className="mt-1 text-xs text-muted">Puntuación de esta conexión</div>
           </div>
         </div>
-        <div className="text-xs text-muted">Detectado {fmtDateTime(l.created_at)}</div>
+        <div className="text-right text-xs text-muted">
+          <div className={l.status === "confirmado" ? "font-semibold text-good-ink" : "text-warning-ink"}>
+            {l.status === "confirmado" ? "Confirmada por analista" : "Pendiente de revisión"}
+          </div>
+          Detectado {fmtDateTime(l.created_at)}
+        </div>
       </div>
 
-      <div className="mt-6 grid items-stretch gap-4 md:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)]">
-        <CaseSide
-          id={l.incident_a}
-          title={l.a_title}
-          started={l.a_started}
-          risk={l.a_risk}
-          scamType={l.a_scam_type}
-          impersonating={l.a_impersonating}
-          caller={l.a_caller}
-        />
-        <div className="flex items-center justify-center" aria-hidden>
-          <span className="grid h-10 w-10 place-items-center rounded-full bg-brand text-white shadow-soft">
-            <Link2 size={18} />
-          </span>
-        </div>
-        <CaseSide
-          id={l.incident_b}
-          title={l.b_title}
-          started={l.b_started}
-          risk={l.b_risk}
-          scamType={l.b_scam_type}
-          impersonating={l.b_impersonating}
-          caller={l.b_caller}
-        />
+      <div className="mt-4 flex flex-wrap items-center gap-2 text-sm font-semibold">
+        <Link href={`/panel/casos/${l.incident_a}`} className="text-accent-ink hover:underline">{caseCode(l.incident_a)} · {l.a_title}</Link>
+        <Link2 size={16} className="shrink-0 text-muted" aria-label="Conexión directa" />
+        <Link href={`/panel/casos/${l.incident_b}`} className="text-accent-ink hover:underline">{caseCode(l.incident_b)} · {l.b_title}</Link>
       </div>
 
       <div className="mt-6 border-t border-line pt-5">
-        <h3 className="text-xs font-semibold tracking-widest text-muted">POR QUÉ LA IA LOS RELACIONA</h3>
+        <h3 className="text-xs font-semibold tracking-widest text-muted">EVIDENCIA DE ESTA CONEXIÓN</h3>
         {reasons.length ? (
           <ul className="mt-4 grid gap-4 md:grid-cols-2">
             {reasons.map((r, i) => {
@@ -137,9 +123,40 @@ function LinkCard({ l }: { l: LinkView }) {
   );
 }
 
+function GroupCard({ group, cases }: { group: LinkGroup<LinkView>; cases: Map<string, IncidentSummary> }) {
+  const members = group.incidentIds.map((id) => cases.get(id)!).sort((a, b) => a.started_at.localeCompare(b.started_at));
+  return (
+    <li id={group.anchor} className="scroll-mt-6 rounded-3xl bg-surface p-6 shadow-soft sm:p-7">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h3 className="flex items-center gap-2 text-xl font-bold"><Link2 size={20} aria-hidden />Grupo de {members.length} casos</h3>
+          <p className="mt-1 text-sm text-muted">{group.links.length} {group.links.length === 1 ? "conexión" : "conexiones"} · {group.confirmedCount} {group.confirmedCount === 1 ? "confirmada" : "confirmadas"} · {group.pendingCount} {group.pendingCount === 1 ? "pendiente" : "pendientes"}</p>
+        </div>
+        <span className="rounded-full bg-accent-wash px-3 py-1 text-xs font-semibold text-accent-ink">Red para investigar</span>
+      </div>
+      <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+        {members.map((incident) => (
+          <CaseSide key={incident.id} id={incident.id} title={incident.title} started={incident.started_at}
+            risk={incident.risk_level} scamType={incident.scam_type} impersonating={incident.impersonating}
+            caller={incident.caller_e164 ?? incident.caller_number_raw} />
+        ))}
+      </div>
+      <p className="mt-4 text-xs text-muted">El grupo reúne conexiones directas e indirectas. Pertenecer a la misma red no confirma una conexión entre todos sus casos ni una misma persona.</p>
+      <details className="mt-5 border-t border-line pt-4">
+        <summary className="cursor-pointer text-sm font-semibold text-accent-ink">{group.links.length === 1 ? "Ver la conexión y su evidencia" : `Ver las ${group.links.length} conexiones y su evidencia`}</summary>
+        <ol className="mt-4 space-y-4">{group.links.map((link) => <ConnectionEvidence key={link.id} l={link} />)}</ol>
+      </details>
+    </li>
+  );
+}
+
 export default async function LinksPage() {
   const { orgId } = await requireAnalyst();
   const [links, incidents] = await Promise.all([listLinks(orgId), listSharedIncidents(orgId)]);
+  const groups = buildLinkGroups(incidents, links);
+  const groupedLinks = groups.flatMap((group) => group.links);
+  const connectedIds = new Set(groups.flatMap((group) => group.incidentIds));
+  const cases = new Map(incidents.map((incident) => [incident.id, incident]));
 
   return (
     <>
@@ -149,18 +166,18 @@ export default async function LinksPage() {
           { href: "/panel/vinculos", label: "Vínculos" },
         ]}
         title="Vínculos entre casos"
-        description="La IA relaciona casos por voz parecida, datos repetidos (números, cuentas, nombres) y el mismo patrón de señales. Indica una posible campaña; atribuirla a una persona exige corroboración independiente."
+        description="Explora grupos de dos o más casos conectados por voz, datos repetidos o patrones de señales. Cada conexión conserva su propia evidencia y revisión."
       />
 
-      <Card title={`Red de casos · ${links.length} vínculos detectados`}>
-        <LinkGraph incidents={incidents} links={links} />
+      <Card title={`Red de casos · ${groups.length} ${groups.length === 1 ? "grupo" : "grupos"} · ${groupedLinks.length} ${groupedLinks.length === 1 ? "conexión" : "conexiones"}`}>
+        <LinkGraph incidents={incidents.filter((incident) => connectedIds.has(incident.id))} links={groupedLinks} />
       </Card>
 
-      <h2 className="mt-8 mb-4 text-[17px] font-semibold">Vínculos detectados por la IA</h2>
-      {links.length ? (
+      <h2 className="mt-8 mb-4 text-[17px] font-semibold">Grupos de casos relacionados</h2>
+      {groups.length ? (
         <ul className="space-y-6">
-          {links.map((l) => (
-            <LinkCard key={l.id} l={l} />
+          {groups.map((group) => (
+            <GroupCard key={group.anchor} group={group} cases={cases} />
           ))}
         </ul>
       ) : (

@@ -1,5 +1,6 @@
 import "server-only";
 import { db } from "./db";
+import { buildLinkGroups, type GroupIncident } from "./link-groups";
 import type {
   ActionLog,
   Entity,
@@ -79,7 +80,7 @@ export async function getIncidentDetail(id: string, session: Session) {
   const sql = await db();
   const incident = await getIncident(id);
   if (!incident || !canView(session, incident)) return null;
-  const [signals, entities, actions, [{ n: voiceSamples }], [owner], sharedOrg, links] =
+  const [signals, entities, actions, [{ n: voiceSamples }], [owner], sharedOrg, allLinks, groupCases] =
     await Promise.all([
       sql<Signal[]>`select * from signals where incident_id = ${id} order by created_at`,
       sql<Entity[]>`select * from entities where incident_id = ${id} order by kind, value`,
@@ -91,9 +92,20 @@ export async function getIncidentDetail(id: string, session: Session) {
         : Promise.resolve([] as { name: string }[]),
       incident.org_id ? getOrg(incident.org_id) : Promise.resolve(undefined),
       incident.org_id
-        ? listLinks(incident.org_id).then((all) => all.filter((l) => l.incident_a === id || l.incident_b === id))
+        ? listLinks(incident.org_id)
         : Promise.resolve([] as LinkView[]),
+      incident.org_id
+        ? sql<(GroupIncident & { title: string; started_at: string })[]>`
+          select id,org_id,simulated,sharing_revoked_at,title,started_at from incidents where org_id=${incident.org_id}`
+        : Promise.resolve([] as (GroupIncident & { title: string; started_at: string })[]),
     ]);
+  const relatedGroup = buildLinkGroups([...groupCases], allLinks).find((group) => group.incidentIds.includes(id)) ?? null;
+  const links = relatedGroup?.links.filter((link) => link.incident_a === id || link.incident_b === id) ?? [];
+  const members = new Set(relatedGroup?.incidentIds);
+  const direct = new Set(links.map((link) => link.incident_a === id ? link.incident_b : link.incident_a));
+  const relatedCases = groupCases.filter((item) => item.id !== id && members.has(item.id))
+    .map((item) => ({ id: item.id, title: item.title, started_at: item.started_at, direct: direct.has(item.id) }))
+    .sort((a, b) => Number(b.direct) - Number(a.direct) || a.started_at.localeCompare(b.started_at));
   return {
     incident,
     signals: [...signals],
@@ -103,6 +115,8 @@ export async function getIncidentDetail(id: string, session: Session) {
     owner,
     sharedOrg,
     links,
+    relatedGroup,
+    relatedCases,
   };
 }
 
@@ -125,6 +139,8 @@ export async function dashboardData(orgId: string) {
       order by n desc limit 8`,
   ]);
 
+  const groups = buildLinkGroups(incidents, links);
+  const connections = groups.flatMap((group) => group.links).sort((a, b) => b.score - a.score);
   const byDay = new Map<string, Record<RiskLevel, number>>();
   // Últimos 14 días, incluidos los días sin casos.
   for (let i = 13; i >= 0; i--) {
@@ -152,7 +168,7 @@ export async function dashboardData(orgId: string) {
 
   return {
     incidents,
-    links,
+    links: connections,
     riskDist,
     period: {
       cases: { now: week.length, prev: prevWeek.length },
@@ -167,7 +183,8 @@ export async function dashboardData(orgId: string) {
       total: incidents.length,
       high: incidents.filter((i) => i.risk_level === "alto").length,
       scams: incidents.filter((i) => i.verdict === "scam").length,
-      links: links.length,
+      links: connections.length,
+      groups: groups.length,
     },
     byDay: [...byDay.entries()].map(([day, counts]) => ({ day, ...counts })),
     signalCounts: [...signalCounts],
@@ -185,14 +202,15 @@ function countBy(values: (string | null)[]) {
 /** Contadores para la barra lateral del analista. */
 export async function navCounts(orgId: string) {
   const sql = await db();
-  const [[{ cases }], [{ links }]] = await Promise.all([
-    sql<{ cases: number }[]>`select count(*)::int as cases from incidents where org_id = ${orgId}`,
-    sql<{ links: number }[]>`
-      select count(*)::int as links from links l
+  const [incidents, links] = await Promise.all([
+    sql<GroupIncident[]>`select id,org_id,simulated,sharing_revoked_at from incidents where org_id = ${orgId}`,
+    sql<Pick<IncidentLink,"id" | "incident_a" | "incident_b" | "status">[]>`
+      select l.id,l.incident_a,l.incident_b,l.status from links l
       join incidents a on a.id = l.incident_a join incidents b on b.id = l.incident_b
       where l.status <> 'descartado' and a.org_id = ${orgId} and b.org_id = ${orgId}`,
   ]);
-  return { cases, links };
+  const groups = buildLinkGroups([...incidents], [...links]);
+  return { cases: incidents.length, links: groups.reduce((total, group) => total + group.links.length, 0), groups: groups.length };
 }
 
 /** Código corto y legible para citar un caso. */

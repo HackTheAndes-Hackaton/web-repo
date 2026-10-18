@@ -6,6 +6,8 @@ import { redirect } from "next/navigation";
 import { createApiKey, revokeApiKey } from "@/lib/api-keys";
 import { db, resetDatabase } from "@/lib/db";
 import { getSession, SESSION_COOKIE } from "@/lib/session";
+import { inspectNetworkOrigin } from "@/lib/api/network-origin";
+import { ApiError } from "@/lib/api/http";
 
 export async function selectDemoUser(formData: FormData) {
   const userId = String(formData.get("userId") ?? "");
@@ -25,6 +27,17 @@ async function analystSession() {
   const s = await getSession();
   if (!s || s.role !== "analista" || !s.orgId) throw new Error("Se requiere una sesión de analista.");
   return s;
+}
+
+export async function inspectNetworkOriginAction(id: string): Promise<{ error?: string; success?: string }> {
+  const session = await analystSession();
+  try {
+    await inspectNetworkOrigin(session.orgId!, id, session.userId);
+    refresh();
+    return { success: "Metadatos actualizados. La IP original no está disponible en esta ruta." };
+  } catch (error) {
+    return { error: error instanceof ApiError ? error.message : "No se pudo consultar la procedencia de la llamada." };
+  }
 }
 
 export interface CreatedKey {
