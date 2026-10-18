@@ -4,7 +4,7 @@ import type { ReactNode } from "react";
 import { unassignCaseAction } from "@/app/actions";
 import { LinkGraph } from "@/components/LinkGraph";
 import { AddMissingForm, EditSuspectForm, NameGroupForm } from "@/components/SuspectForms";
-import { CallerNumber, Card, Empty, IconBubble, PageHeader, RiskBadge, ScamTypeChip } from "@/components/ui";
+import { CallerNumber, Card, Empty, IconBubble, PageHeader, RiskBadge, RiskIcon, ScamTypeChip } from "@/components/ui";
 import { fmtDateTime, fmtPhone, pct } from "@/lib/format";
 import { requireAnalyst } from "@/lib/panel";
 import { caseCode, listLinks, listSharedIncidents, type LinkView, type IncidentSummary } from "@/lib/repo";
@@ -204,8 +204,15 @@ function GroupRecord({ members, suspects }: { members: IncidentSummary[]; suspec
   );
 }
 
+/** Desde este tamaño el grupo se muestra como lista compacta (igual que el gráfico, que pasa a un centro con radios). */
+const BIG_GROUP = 7;
+const TOP_CONNECTIONS = 10;
+
 function GroupCard({ group, cases, suspects }: { group: LinkGroup<LinkView>; cases: Map<string, IncidentSummary>; suspects: Map<string, SuspectSummary> }) {
   const members = group.incidentIds.map((id) => cases.get(id)!).sort((a, b) => a.started_at.localeCompare(b.started_at));
+  // En grupos grandes las tarjetas y las N×(N−1)/2 conexiones no se pueden leer: lista compacta y las más fuertes.
+  const big = members.length >= BIG_GROUP;
+  const strongest = [...group.links].sort((a, b) => b.score - a.score).slice(0, big ? TOP_CONNECTIONS : undefined);
   return (
     <li id={group.anchor} className="scroll-mt-6 rounded-3xl bg-surface p-6 shadow-soft sm:p-7">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -216,6 +223,25 @@ function GroupCard({ group, cases, suspects }: { group: LinkGroup<LinkView>; cas
         <span className="rounded-full bg-accent-wash px-3 py-1 text-xs font-semibold text-accent-ink">Red para investigar</span>
       </div>
       <div className="mt-4"><GroupRecord members={members} suspects={suspects} /></div>
+      {big ? (
+        <ul className="mt-5 grid gap-x-6 gap-y-0.5 md:grid-cols-2">
+          {members.map((incident) => {
+            const alias = incident.suspect_id ? suspects.get(incident.suspect_id)?.alias : null;
+            return (
+              <li key={incident.id}>
+                <Link href={`/panel/casos/${incident.id}`}
+                  className="flex items-center gap-3 rounded-xl px-3 py-2 text-sm hover:bg-accent-wash">
+                  <RiskIcon level={incident.risk_level} />
+                  <span className="tabular w-16 shrink-0 font-semibold">{caseCode(incident.id)}</span>
+                  <span className="min-w-0 flex-1 truncate">{incident.title}</span>
+                  {alias && <UserRoundSearch size={13} className="shrink-0 text-critical-ink" aria-label={`Registrado en ${alias}`} />}
+                  <span className="tabular shrink-0 text-xs text-muted">{fmtDateTime(incident.started_at)}</span>
+                </Link>
+              </li>
+            );
+          })}
+        </ul>
+      ) : (
       <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
         {members.map((incident) => (
           <CaseSide key={incident.id} id={incident.id} title={incident.title} started={incident.started_at}
@@ -224,10 +250,22 @@ function GroupCard({ group, cases, suspects }: { group: LinkGroup<LinkView>; cas
             alias={incident.suspect_id ? suspects.get(incident.suspect_id)?.alias : null} />
         ))}
       </div>
+      )}
       <p className="mt-4 text-xs text-muted">El grupo reúne conexiones directas e indirectas. Pertenecer a la misma red no confirma una conexión entre todos sus casos ni una misma persona.</p>
       <details className="mt-5 border-t border-line pt-4">
-        <summary className="cursor-pointer text-sm font-semibold text-accent-ink">{group.links.length === 1 ? "Ver la conexión y su evidencia" : `Ver las ${group.links.length} conexiones y su evidencia`}</summary>
-        <ol className="mt-4 space-y-4">{group.links.map((link) => <ConnectionEvidence key={link.id} l={link} />)}</ol>
+        <summary className="cursor-pointer text-sm font-semibold text-accent-ink">
+          {group.links.length === 1
+            ? "Ver la conexión y su evidencia"
+            : big
+              ? `Ver las ${strongest.length} conexiones más fuertes de ${group.links.length}`
+              : `Ver las ${group.links.length} conexiones y su evidencia`}
+        </summary>
+        <ol className="mt-4 space-y-4">{strongest.map((link) => <ConnectionEvidence key={link.id} l={link} />)}</ol>
+        {big && group.links.length > strongest.length && (
+          <p className="mt-3 text-xs text-muted">
+            Las otras {group.links.length - strongest.length} conexiones repiten la misma evidencia entre otros pares del grupo.
+          </p>
+        )}
       </details>
     </li>
   );

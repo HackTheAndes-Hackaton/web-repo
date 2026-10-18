@@ -7,6 +7,7 @@ import { LinkReasons } from "@/components/links-ui";
 import { CallerNumber, Card, Empty, IconBubble, PulsingShield, RiskBadge, RiskIcon, ScamTypeChip } from "@/components/ui";
 import { fmtDateTime, fmtDay, pct } from "@/lib/format";
 import { requireAnalyst } from "@/lib/panel";
+import { buildLinkGroups } from "@/lib/link-groups";
 import { caseCode, dashboardData } from "@/lib/repo";
 import { ENTITY_LABELS, SIGNAL_LABELS, scamTypeLabel, type EntityKind, type SignalType } from "@/lib/types";
 
@@ -85,7 +86,11 @@ export default async function Dashboard() {
   const data = await dashboardData(orgId);
   const byDay = data.byDay.map((d) => ({ ...d, label: fmtDay(d.day) }));
   const signals = data.signalCounts.map((s) => ({ label: SIGNAL_LABELS[s.type as SignalType] ?? s.type, n: s.n }));
-  const strongest = data.links.slice(0, 3);
+  // Una conexión por grupo: si no, un grupo grande llena la lista con la misma pareja de números.
+  const strongest = buildLinkGroups(data.incidents, data.links)
+    .map((g) => ({ link: [...g.links].sort((a, b) => b.score - a.score)[0], size: g.incidentIds.length, anchor: g.anchor }))
+    .sort((a, b) => b.link.score - a.link.score)
+    .slice(0, 3);
   const titleOf = new Map(data.incidents.map((i) => [i.id, i.title]));
   const total = data.kpis.total || 1;
   // La red solo muestra casos con al menos una conexión; los casos sueltos no aportan al gráfico.
@@ -255,15 +260,17 @@ export default async function Dashboard() {
           <Card title="Conexiones más fuertes">
             {strongest.length ? (
               <ul className="space-y-3">
-                {strongest.map((l) => (
+                {strongest.map(({ link: l, size, anchor }) => (
                   <li key={l.id}>
-                    <Link href="/panel/vinculos" className="block rounded-2xl bg-surface-2/70 p-3.5 hover:bg-accent-wash">
+                    <Link href={`/panel/vinculos#${anchor}`} className="block rounded-2xl bg-surface-2/70 p-3.5 hover:bg-accent-wash">
                       <div className="flex items-center justify-between gap-2">
-                        <span className="text-xs text-muted">Puntaje</span>
+                        <span className="text-xs text-muted">{size > 2 ? `Grupo de ${size} casos · mejor conexión` : "Puntaje"}</span>
                         <span className="tabular rounded-full bg-warning-wash px-2 text-xs font-bold text-warning-ink">{pct(l.score)}</span>
                       </div>
                       <div className="mt-1 text-sm font-semibold leading-snug">
-                        {titleOf.get(l.incident_a)} <span className="text-muted">↔</span> {titleOf.get(l.incident_b)}
+                        <span className="tabular text-muted">{caseCode(l.incident_a)}</span> {titleOf.get(l.incident_a)}{" "}
+                        <span className="text-muted">↔</span>{" "}
+                        <span className="tabular text-muted">{caseCode(l.incident_b)}</span> {titleOf.get(l.incident_b)}
                       </div>
                       <LinkReasons reasons={l.reasons.filter((r) => !/guion/i.test(r.detail))} />
                     </Link>
