@@ -91,9 +91,22 @@ export function RiskBadge({ level, score }: { level: RiskLevel; score?: number }
   );
 }
 
+const VERDICT = {
+  safe: { label: "Segura", cls: "bg-good-wash text-good-ink" },
+  suspicious: { label: "Sospechosa", cls: "bg-warning-wash text-warning-ink" },
+  scam: { label: "Estafa", cls: "bg-critical-wash text-critical" },
+} as const;
+
+/** Veredicto del análisis, como VerdictBadge de la app. "none" no se muestra. */
+export function VerdictBadge({ verdict }: { verdict: string | null | undefined }) {
+  const v = VERDICT[verdict as keyof typeof VERDICT];
+  if (!v) return null;
+  return <span className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold ${v.cls}`}>Veredicto: {v.label}</span>;
+}
+
 export function SignalChip({ type }: { type: SignalType }) {
   return (
-    <span className="inline-flex items-center whitespace-nowrap rounded-full bg-surface-2 px-2.5 py-0.5 text-xs font-medium text-fg-2">
+    <span className="inline-flex items-center whitespace-nowrap rounded-full bg-accent-wash px-2.5 py-0.5 text-xs font-medium text-accent-ink">
       {SIGNAL_LABELS[type] ?? type}
     </span>
   );

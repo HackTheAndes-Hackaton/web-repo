@@ -13,7 +13,7 @@ import { Empty } from "./ui";
 
 const METER: Record<RiskLevel, { headline: string; ink: string; color: string }> = {
   bajo: { headline: "Riesgo bajo", ink: "text-good-ink", color: "var(--good)" },
-  medio: { headline: "Sospechosa", ink: "text-warning-ink", color: "var(--warning)" },
+  medio: { headline: "Verifica antes de actuar", ink: "text-warning-ink", color: "var(--warning)" },
   alto: { headline: "Posible estafa", ink: "text-critical", color: "var(--critical)" },
 };
 
@@ -132,9 +132,10 @@ export function Timeline({ segments, signals }: { segments: Segment[]; signals: 
     <ol className="relative">
       {segments.map((seg, i) => {
         const flags = bySegment.get(seg.id) ?? [];
-        const flagged = flags.length > 0;
         const last = i === segments.length - 1;
         const agent = AGENT_SPEAKER.test(seg.speaker ?? "");
+        // La API puede marcar la frase como sospechosa aunque no tenga señales asociadas.
+        const flagged = !agent && (seg.flagged || flags.length > 0);
         const note = seg.text.startsWith("(");
         return (
           <li key={seg.id} id={`seg-${seg.id}`} className="relative grid scroll-mt-24 grid-cols-[3rem_1.75rem_1fr] gap-x-2">

@@ -8,7 +8,7 @@ import { channelLabel, type AnalystStatus } from "@/lib/types";
 import { EntityTable, RiskMeter, SignalList, Timeline } from "./incident-parts";
 import { LinkReasons, LinkStatusTag } from "./links-ui";
 import { PrintButton } from "./PrintButton";
-import { buttonCls, Card, Empty, PageHeader, Pill, RiskBadge, Tag } from "./ui";
+import { buttonCls, Card, Empty, PageHeader, Pill, RiskBadge, Tag, VerdictBadge } from "./ui";
 
 const NOTE_KIND = { correccion: "Corrección", observacion: "Observación", conclusion: "Conclusión revisada" };
 const STEPS: { value: AnalystStatus; label: string }[] = [
@@ -111,6 +111,7 @@ export function IncidentReport({ detail, tab = "cronologia" }: { detail: Inciden
           <>
             <StatusStepper incidentId={incident.id} current={incident.analyst_status} />
             <RiskBadge level={incident.risk_level} score={incident.risk_score} />
+            <VerdictBadge verdict={incident.verdict} />
             <Pill icon={<Clock size={12} aria-hidden />}>
               {incident.status === "en_curso" ? "En curso · " : ""}
               {fmtDuration(incident.started_at, incident.ended_at)}
