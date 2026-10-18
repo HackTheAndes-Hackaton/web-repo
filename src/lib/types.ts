@@ -119,6 +119,21 @@ export interface Incident {
   analysis_meta: Record<string, unknown>;
   shared_at: string | null;
   sharing_revoked_at: string | null;
+  /** Presunto responsable al que un analista asoció el caso (alias de registro). */
+  suspect_id: string | null;
+}
+
+/** Alias que un analista da a un grupo de casos que cree obra del mismo estafador. No identifica a nadie. */
+export interface Suspect {
+  id: string;
+  org_id: string;
+  alias: string;
+  notes: string;
+  status: "en_investigacion" | "descartado";
+  created_by: string | null;
+  created_by_id: string | null;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface Signal {

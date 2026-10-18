@@ -88,6 +88,9 @@ export default async function Dashboard() {
   const strongest = data.links.slice(0, 3);
   const titleOf = new Map(data.incidents.map((i) => [i.id, i.title]));
   const total = data.kpis.total || 1;
+  // La red solo muestra casos con al menos una conexión; los casos sueltos no aportan al gráfico.
+  const linkedIds = new Set(data.links.flatMap((l) => [l.incident_a, l.incident_b]));
+  const linked = data.incidents.filter((i) => linkedIds.has(i.id));
 
   return (
     <>
@@ -242,7 +245,11 @@ export default async function Dashboard() {
             </Link>
           }
         >
-          {data.incidents.length ? <LinkGraph incidents={data.incidents} links={data.links} /> : <Empty>No hay casos.</Empty>}
+          {linked.length ? (
+            <LinkGraph incidents={linked} links={data.links} />
+          ) : (
+            <Empty>La IA todavía no detectó vínculos entre casos.</Empty>
+          )}
         </Card>
         <div className="space-y-6">
           <Card title="Conexiones más fuertes">

@@ -8,6 +8,7 @@ import { db, resetDatabase } from "@/lib/db";
 import { getSession, SESSION_COOKIE } from "@/lib/session";
 import { inspectNetworkOrigin } from "@/lib/api/network-origin";
 import { ApiError } from "@/lib/api/http";
+import { assignCases, createSuspect, SuspectError, unassignCase, updateSuspect } from "@/lib/suspects";
 
 export async function selectDemoUser(formData: FormData) {
   const userId = String(formData.get("userId") ?? "");
@@ -38,6 +39,59 @@ export async function inspectNetworkOriginAction(id: string): Promise<{ error?: 
   } catch (error) {
     return { error: error instanceof ApiError ? error.message : "No se pudo consultar la procedencia de la llamada." };
   }
+}
+
+export interface SuspectFormState {
+  error?: string;
+  success?: string;
+}
+
+const caseIds = (formData: FormData) => formData.getAll("incidentId").map(String);
+
+async function suspectStep(run: () => Promise<string>): Promise<SuspectFormState> {
+  try {
+    const success = await run();
+    refresh();
+    return { success };
+  } catch (error) {
+    if (error instanceof SuspectError) return { error: error.message };
+    console.error("suspect_action_failed", error);
+    return { error: "No se pudo guardar el registro." };
+  }
+}
+
+/** Crea un presunto responsable con un alias y le asocia los casos del grupo. */
+export async function createSuspectAction(_prev: SuspectFormState, formData: FormData): Promise<SuspectFormState> {
+  const session = await analystSession();
+  return suspectStep(async () => {
+    await createSuspect(session, { alias: formData.get("alias"), notes: formData.get("notes"), incidentIds: caseIds(formData) });
+    return "Registro creado.";
+  });
+}
+
+/** Suma casos a un presunto responsable que ya existe. */
+export async function assignToSuspectAction(_prev: SuspectFormState, formData: FormData): Promise<SuspectFormState> {
+  const session = await analystSession();
+  return suspectStep(async () => {
+    await assignCases(session, String(formData.get("suspectId") ?? ""), caseIds(formData));
+    return "Casos agregados al registro.";
+  });
+}
+
+export async function updateSuspectAction(_prev: SuspectFormState, formData: FormData): Promise<SuspectFormState> {
+  const session = await analystSession();
+  return suspectStep(async () => {
+    await updateSuspect(session, String(formData.get("suspectId") ?? ""), {
+      alias: formData.get("alias"), notes: formData.get("notes"), status: formData.get("status"),
+    });
+    return "Registro actualizado.";
+  });
+}
+
+export async function unassignCaseAction(incidentId: string) {
+  const session = await analystSession();
+  await unassignCase(session, incidentId);
+  refresh();
 }
 
 export interface CreatedKey {

@@ -177,6 +177,7 @@ const incidents: ResourceDef = {
     "analyst_status",
     "created_at",
     "updated_at",
+    "suspect_id",
     ...Object.keys(callData),
   ],
   jsonColumns: ["risk_reasons", "consent_snapshot", "analysis_meta"],
@@ -199,8 +200,9 @@ const incidents: ResourceDef = {
       ...withDefaults(callData, { ready_to_answer: false, simulated: false, blocked: false, analysis_status: "pending", verdict: "none", risk_reasons: [], consent_snapshot: {}, analysis_meta: {} }),
     })
     .strict(),
-  update: patchOf(incidentFields),
-  filters: ["org_id", "user_id", "status", "risk_level", "analyst_status", "channel", "external_id", "client_call_id", "agent_session_id", "simulated", "verdict"],
+  // suspect_id asocia el caso a un presunto responsable de su misma organización (la base lo comprueba).
+  update: patchOf({ ...incidentFields, suspect_id: ref.nullable() }),
+  filters: ["org_id", "user_id", "status", "risk_level", "analyst_status", "channel", "external_id", "client_call_id", "agent_session_id", "simulated", "verdict", "suspect_id"],
   dateColumn: "started_at",
   order: { column: "started_at", dir: "desc" },
   childOfIncident: false,
@@ -354,6 +356,29 @@ const voiceProfiles: ResourceDef = {
   childOfIncident: false, prepare: async (rows) => withIdAndTimes("vp", rows),
 };
 
+// ---------- Presuntos responsables ----------
+const suspectFields = {
+  alias: z.string().trim().min(1).max(80),
+  notes: z.string().trim().max(2000),
+  status: z.enum(["en_investigacion", "descartado"]),
+};
+const suspects: ResourceDef = {
+  name: "suspects", table: "suspects", title: "Presuntos responsables",
+  description:
+    "Alias que un analista da a casos que cree obra del mismo estafador. Sirve para llevar registro: no identifica a una persona. Los casos se asocian con PATCH /incidents/{id} { suspect_id }.",
+  idPrefix: "sus",
+  columns: ["id", "org_id", "alias", "notes", "status", "created_by", "created_by_id", "created_at", "updated_at"],
+  create: z.object({
+    id: id.optional(), org_id: ref, alias: suspectFields.alias, notes: suspectFields.notes.default(""),
+    status: suspectFields.status.default("en_investigacion"), created_by: text(200).nullable().default(null),
+  }).strict(),
+  update: patchOf(suspectFields),
+  filters: ["org_id", "status"], dateColumn: "created_at", order: { column: "created_at", dir: "desc" },
+  childOfIncident: false,
+  prepare: async (rows) => withIdAndTimes("sus", rows).map((r) => ({ ...r, updated_at: r.created_at })),
+  preparePatch: (patch) => ({ ...patch, updated_at: nowIso() }),
+};
+
 // ---------- Bitácora ----------
 const actionData = {
   actor_id: ref.nullable(), actor_kind: z.enum(["user", "analyst", "service", "system"]),
@@ -495,6 +520,7 @@ export const RESOURCES: ResourceDef[] = [
   entities,
   voiceSamples,
   voiceProfiles,
+  suspects,
   actions,
   notes,
   links,

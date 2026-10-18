@@ -1,6 +1,6 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
-import { Clock, FolderOpen, Hash, Mic, PhoneIncoming, PhoneOutgoing, ShieldAlert, UserRound } from "lucide-react";
+import { Clock, FolderOpen, Hash, Mic, PhoneIncoming, PhoneOutgoing, ShieldAlert, UserRound, UserRoundSearch } from "lucide-react";
 import { fmtDateTime, fmtDuration, fmtPhone, pct } from "@/lib/format";
 import { caseCode, type IncidentDetail } from "@/lib/repo";
 import { channelLabel, scamTypeLabel } from "@/lib/types";
@@ -56,7 +56,7 @@ function Fact({
 const DIRECTION = { incoming: "Llamada entrante", outgoing: "Llamada saliente" };
 
 export function IncidentReport({ detail, tab = "ia" }: { detail: IncidentDetail; tab?: ReportTab }) {
-  const { incident, transcript, signals, entities, actions, voiceSamples, owner, sharedOrg, links, relatedGroup, relatedCases } = detail;
+  const { incident, transcript, signals, entities, actions, voiceSamples, owner, sharedOrg, links, relatedGroup, relatedCases, suspect } = detail;
   const generation = incident.analysis_meta.report_generation as { status?: string } | undefined;
   const here = `/panel/casos/${incident.id}`;
   const number = fmtPhone(incident.caller_e164 ?? incident.caller_number_raw);
@@ -99,6 +99,16 @@ export function IncidentReport({ detail, tab = "ia" }: { detail: IncidentDetail;
             <RiskBadge level={incident.risk_level} score={incident.risk_score} />
             <VerdictBadge verdict={incident.verdict} />
             <ScamTypeChip type={incident.scam_type} />
+            {suspect && (
+              <Link
+                href={`/panel/vinculos#${suspect.id}`}
+                className="inline-flex items-center gap-1.5 rounded-full bg-navy px-2.5 py-0.5 text-xs font-semibold text-white hover:brightness-125"
+                title="Alias de registro: no identifica a una persona"
+              >
+                <UserRoundSearch size={12} aria-hidden />
+                Presunto: {suspect.alias}
+              </Link>
+            )}
             <Pill>
               <CallerNumber incident={incident} />
             </Pill>

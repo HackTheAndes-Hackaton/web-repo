@@ -43,8 +43,10 @@ function createClient(): Sql {
   return postgres(clean.toString(), {
     prepare: false, // compatible con cualquier modo del pooler de Supabase
     ssl: local ? false : "require",
-    max: Number(process.env.DATABASE_POOL_MAX ?? (local ? 1 : 5)),
-    idle_timeout: 20,
+    // En Vercel cada instancia abre su propio pool y el Session pooler de Supabase
+    // admite pocos clientes: una conexión por instancia, liberada pronto.
+    max: Number(process.env.DATABASE_POOL_MAX ?? (local || process.env.VERCEL ? 1 : 5)),
+    idle_timeout: process.env.VERCEL ? 5 : 20,
     onnotice: () => {},
     types: {
       // Fechas como cadenas ISO en lugar de objetos Date.
