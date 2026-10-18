@@ -6,7 +6,6 @@ import { LinkGraph } from "@/components/LinkGraph";
 import { CallerNumber, Card, Empty, IconBubble, PulsingShield, RiskBadge, ScamTypeChip } from "@/components/ui";
 import { fmtDateTime, fmtDay } from "@/lib/format";
 import { requireAnalyst } from "@/lib/panel";
-import { bucketByCaller } from "@/lib/caller-buckets";
 import { caseCode, dashboardData } from "@/lib/repo";
 import { ENTITY_LABELS, SIGNAL_LABELS, scamTypeLabel, type EntityKind, type SignalType } from "@/lib/types";
 
@@ -244,7 +243,7 @@ export default async function Dashboard() {
 
       <section className="mt-6 overflow-hidden rounded-3xl bg-surface shadow-soft">
         <div className="flex items-center justify-between gap-3 px-5 py-4 sm:px-6">
-          <h2 className="text-[15px] font-bold">Casos recientes</h2>
+          <h2 className="text-[15px] font-bold">Llamadas recientes</h2>
           <Link href="/panel/casos" className="text-xs font-medium text-accent-ink hover:underline">
             Ver todos →
           </Link>
@@ -260,37 +259,26 @@ export default async function Dashboard() {
               </tr>
             </thead>
             <tbody>
-              {bucketByCaller(data.incidents).slice(0, 5).map((b) => {
-                const i = b.worst;
-                const many = b.cases.length > 1;
-                const types = [...new Set(b.cases.map((c) => c.scam_type).filter((t): t is string => Boolean(t)))];
-                return (
-                  <tr key={b.key} className="border-b border-line last:border-0 hover:bg-accent-wash/50">
-                    <td className="px-4 py-3 sm:px-5">
-                      {many ? (
-                        <Link href={`/panel/casos?q=${b.digits}`} className="font-medium hover:underline">
-                          {b.cases.length} llamadas del mismo número
-                        </Link>
-                      ) : (
-                        <Link href={`/panel/casos/${i.id}`} className="font-medium hover:underline">
-                          <span className="tabular mr-2 text-xs text-muted">{caseCode(i.id)}</span>
-                          {i.title}
-                        </Link>
-                      )}
-                      <div className="text-xs text-muted">{many ? "Última: " : ""}{fmtDateTime(b.cases[0].started_at)}</div>
-                    </td>
-                    <td className="px-4 py-3">
-                      {types.length ? <ScamTypeChip type={types[0]} /> : <span className="text-muted">—</span>}
-                    </td>
-                    <td className="px-4 py-3">
-                      <CallerNumber incident={i} />
-                    </td>
-                    <td className="px-4 py-3">
-                      <RiskBadge level={i.risk_level} score={i.risk_score} />
-                    </td>
-                  </tr>
-                );
-              })}
+              {data.incidents.slice(0, 5).map((i) => (
+                <tr key={i.id} className="border-b border-line last:border-0 hover:bg-accent-wash/50">
+                  <td className="px-4 py-3 sm:px-5">
+                    <Link href={`/panel/casos/${i.id}`} className="font-medium hover:underline">
+                      <span className="tabular mr-2 text-xs text-muted">{caseCode(i.id)}</span>
+                      {i.title}
+                    </Link>
+                    <div className="text-xs text-muted">{fmtDateTime(i.started_at)}</div>
+                  </td>
+                  <td className="px-4 py-3">
+                    {i.scam_type ? <ScamTypeChip type={i.scam_type} /> : <span className="text-muted">—</span>}
+                  </td>
+                  <td className="px-4 py-3">
+                    <CallerNumber incident={i} />
+                  </td>
+                  <td className="px-4 py-3">
+                    <RiskBadge level={i.risk_level} score={i.risk_score} />
+                  </td>
+                </tr>
+              ))}
             </tbody>
           </table>
         </div>
