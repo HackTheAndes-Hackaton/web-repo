@@ -29,6 +29,8 @@ type EntityRow = {incident_id:string;kind:string;value:string;normalized:string;
 type TranscriptRow = {incident_id:string;idx:number;speaker:string|null;text:string;t_offset:number;flagged:boolean};
 
 export type ReportCase = Omit<CaseRow,"org_id"|"simulated"|"sharing_revoked_at"|"analysis_meta"|"consent_snapshot"> & {
+  /** Ausente en versiones históricas, que solo admitían casos ficticios. */
+  simulated?:boolean|null;
   maritime:{model_id:string|null;prompt_version:string|null;limitations:string[];completed?:boolean};
   signals:Omit<SignalRow,"incident_id">[];entities:Omit<EntityRow,"incident_id">[];
   /** Ausente solo en versiones anteriores a la incorporación de conversaciones. */
@@ -53,7 +55,7 @@ function selected(values:string[],min:number,max:number,label:string) {
   return [...values].sort();
 }
 function reportEligible(row:CaseRow) {
-  return row.simulated===true && !row.sharing_revoked_at;
+  return !row.sharing_revoked_at;
 }
 function maritimeMeta(meta:Record<string,unknown>) {
   const generation=(meta.report_generation??{}) as Record<string,unknown>;
@@ -90,7 +92,7 @@ export async function createReportVersion(input:{orgId:string;analystId:string;c
       risk_score,risk_level,verdict,scam_type,impersonating,caller_e164,caller_number_raw,summary,recommendation,
       analysis_meta,consent_snapshot from incidents where id=any(${caseIds}::text[]) and org_id=${input.orgId}`;
     if(cases.length!==caseIds.length||cases.some(row=>!reportEligible(row)))
-      throw new ReportVersionError("cases_unavailable","Todos los casos deben ser ficticios, pertenecer a la organización y conservar su acceso compartido.");
+      throw new ReportVersionError("cases_unavailable","Todos los casos deben pertenecer a la organización y conservar su acceso compartido.");
     const links=await tx<LinkRow[]>`select l.id,l.incident_a,l.incident_b,l.status,l.score,l.voice_sim,l.content_sim,l.reasons,
       l.evidence_snapshot,l.evidence_version,l.reviewed_by,l.reviewed_at,
       l.reviewed_evidence_version,l.reviewed_evidence,l.note
@@ -104,7 +106,7 @@ export async function createReportVersion(input:{orgId:string;analystId:string;c
       throw new ReportVersionError("disconnected_selection","Los vínculos elegidos deben conectar todos los casos seleccionados.");
     const eligibleCases=await tx<Pick<CaseRow,"id"|"org_id"|"simulated"|"sharing_revoked_at">[]>`
       select id,org_id,simulated,sharing_revoked_at from incidents
-      where org_id=${input.orgId} and simulated is true and sharing_revoked_at is null`;
+      where org_id=${input.orgId} and sharing_revoked_at is null`;
     const eligibleIds=eligibleCases.map(row=>row.id);
     const eligibleLinks=await tx<Pick<LinkRow,"id"|"incident_a"|"incident_b"|"status">[]>`
       select id,incident_a,incident_b,status from links
@@ -124,7 +126,7 @@ export async function createReportVersion(input:{orgId:string;analystId:string;c
         where incident_id=any(${caseIds}::text[]) order by incident_id,idx,created_at,id`,
     ]);
     const reportCases:ReportCase[]=cases.sort((a,b)=>a.started_at.localeCompare(b.started_at)||a.id.localeCompare(b.id))
-      .map(row=>({id:row.id,title:row.title,started_at:row.started_at,ended_at:row.ended_at,status:row.status,
+      .map(row=>({id:row.id,title:row.title,simulated:row.simulated,started_at:row.started_at,ended_at:row.ended_at,status:row.status,
         channel:row.channel,risk_score:row.risk_score,risk_level:row.risk_level,verdict:row.verdict,
         scam_type:row.scam_type,impersonating:row.impersonating,caller_e164:row.caller_e164,
         caller_number_raw:row.caller_number_raw,summary:row.summary,recommendation:row.recommendation,
@@ -136,10 +138,11 @@ export async function createReportVersion(input:{orgId:string;analystId:string;c
         transcript:transcript.filter(line=>line.incident_id===row.id).map(line=>({idx:line.idx,speaker:line.speaker,
           text:line.text,t_offset:line.t_offset,flagged:line.flagged}))}));
     const reportLinks=links.sort((a,b)=>a.id.localeCompare(b.id));
+    const allFictitious=cases.every(row=>row.simulated===true);
     const snapshot:ReportSnapshot={schema_version:2,captured_at:new Date().toISOString(),organization:org,
       selected_case_ids:caseIds,selected_link_ids:linkIds,cases:reportCases,links:reportLinks,
-      caveat:"Agrupación preliminar de casos ficticios. Los indicios y coincidencias no identifican a una persona ni sustituyen la revisión policial."};
-    const summary=`Informe preliminar de ${reportCases.length} casos ficticios y ${reportLinks.length} vínculos seleccionados. `+
+      caveat:`Agrupación preliminar de casos ${allFictitious?'ficticios':'registrados'}. Los indicios y coincidencias no identifican a una persona ni sustituyen la revisión policial.`};
+    const summary=`Informe preliminar de ${reportCases.length} casos ${allFictitious?'ficticios':'registrados'} y ${reportLinks.length} vínculos seleccionados. `+
       `${reportLinks.filter(link=>link.status==="confirmado").length} vínculos confirmados por analista; `+
       `${reportLinks.filter(link=>link.status==="pendiente").length} pendientes de revisión. `+
       reportCases.map(row=>`${row.title}: ${row.summary?.trim()||"Sin resumen registrado."}`).join(" ").slice(0,5000);
@@ -166,7 +169,7 @@ export async function listLatestReportVersions(orgId:string,client?:Sql) {
     where org_id=${orgId} and not exists (
       select 1 from jsonb_array_elements_text(snapshot->'selected_case_ids') as chosen(case_id)
       left join incidents i on i.id=chosen.case_id and i.org_id=${orgId}
-      where i.id is null or i.simulated is distinct from true or i.sharing_revoked_at is not null)
+      where i.id is null or i.sharing_revoked_at is not null)
     order by series_id,version desc`]
     .sort((a,b)=>b.created_at.localeCompare(a.created_at));
 }
@@ -177,7 +180,7 @@ export async function getReportVersion(orgId:string,id:string,client?:Sql) {
     where org_id=${orgId} and id=${id} and not exists (
       select 1 from jsonb_array_elements_text(snapshot->'selected_case_ids') as chosen(case_id)
       left join incidents i on i.id=chosen.case_id and i.org_id=${orgId}
-      where i.id is null or i.simulated is distinct from true or i.sharing_revoked_at is not null)`;
+      where i.id is null or i.sharing_revoked_at is not null)`;
   return row??null;
 }
 
@@ -187,6 +190,6 @@ export async function listReportVersions(orgId:string,seriesId:string,client?:Sq
     where org_id=${orgId} and series_id=${seriesId} and not exists (
       select 1 from jsonb_array_elements_text(snapshot->'selected_case_ids') as chosen(case_id)
       left join incidents i on i.id=chosen.case_id and i.org_id=${orgId}
-      where i.id is null or i.simulated is distinct from true or i.sharing_revoked_at is not null)
+      where i.id is null or i.sharing_revoked_at is not null)
     order by version desc`];
 }

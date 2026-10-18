@@ -120,7 +120,7 @@ export function IncidentReport({ detail, tab = "ia" }: { detail: IncidentDetail;
             {incident.external_id && <Pill icon={<Hash size={12} aria-hidden />}>{incident.external_id}</Pill>}
           </>
         }
-        actions={incident.simulated === true && !incident.sharing_revoked_at && relatedGroup && relatedGroup.incidentIds.length >= 2 ?
+        actions={relatedGroup && relatedGroup.incidentIds.length >= 2 ?
           <Link href={`/panel/informes#${relatedGroup.anchor}`}
             className="inline-flex rounded-full border border-line px-4 py-2 text-sm font-semibold hover:bg-surface-2">
             Informe PDF del conjunto

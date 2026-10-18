@@ -8,6 +8,7 @@ import postgres from 'postgres';
 import {applyMigrations} from '../scripts/migration-runner.mjs';
 import {createReportVersion,getReportVersion,listLatestReportVersions,ReportVersionError} from '../src/lib/reports/versions.ts';
 import {renderReportPdf} from '../src/lib/reports/pdf.mjs';
+import pdfLib from '../src/lib/reports/vendor/pdf-lib.cjs';
 
 async function database(run) {
   const database=await PGlite.create({extensions:{vector}});
@@ -113,9 +114,33 @@ test('permite el grupo ficticio completo aunque falten permisos del flujo autom�
     const pdf=await renderReportPdf(report);
     assert.equal(Buffer.from(pdf).toString('latin1',0,5),'%PDF-');
     if(process.env.TISKZ_MIXED_PDF_SAMPLE_PATH) await (await import('node:fs/promises')).writeFile(process.env.TISKZ_MIXED_PDF_SAMPLE_PATH,pdf);
-    await sql`update incidents set simulated=false where id='b'`;
+  });
+});
+
+test('genera un PDF del grupo completo de tres casos no ficticios y respeta la revocación',async()=>{
+  await database(async sql=>{
+    await fixture(sql);
+    await sql`update incidents set simulated=false,consent_snapshot='{}'::jsonb where id in ('a','b')`;
+    await sql`update incidents set status='en_curso',summary=null,analysis_meta='{}'::jsonb where id='b'`;
+    await sql`insert into incidents(id,org_id,title,status,simulated,summary,analysis_meta,consent_snapshot)
+      values ('c','org','Tercer caso','finalizado',false,'Nueva solicitud de dinero.','{}'::jsonb,'{}'::jsonb)`;
+    await sql`insert into links(id,incident_a,incident_b,status,score,reasons)
+      values ('ac','a','c','confirmado',0.83,'[{"kind":"dato_compartido","detail":"Cuenta repetida"}]'),
+        ('bc','b','c','pendiente',0.64,'[{"kind":"dato_compartido","detail":"Número repetido"}]')`;
+    const report=await createReportVersion({...input,caseIds:['a','b','c'],linkIds:['ab','ac','bc']},sql);
+    assert.deepEqual(report.snapshot.selected_case_ids,['a','b','c']);
+    assert.deepEqual(report.snapshot.selected_link_ids,['ab','ac','bc']);
+    assert.deepEqual(report.snapshot.cases.map(item=>item.simulated),[false,false,false]);
+    assert.match(report.summary,/casos registrados/);
+    assert.doesNotMatch(report.summary,/casos ficticios/);
+    const pdf=await renderReportPdf(report);
+    assert.match((await pdfLib.PDFDocument.load(pdf)).getSubject(),/casos registrados/);
+    if(process.env.TISKZ_REAL_PDF_SAMPLE_PATH) await (await import('node:fs/promises')).writeFile(process.env.TISKZ_REAL_PDF_SAMPLE_PATH,pdf);
+    assert.equal((await getReportVersion('org',report.id,sql)).id,report.id);
+    assert.equal(await getReportVersion('other',report.id,sql),null);
+    await sql`update incidents set sharing_revoked_at=now() where id='c'`;
     assert.equal(await getReportVersion('org',report.id,sql),null);
-    await assert.rejects(createReportVersion(input,sql),error=>error instanceof ReportVersionError&&error.code==='cases_unavailable');
+    assert.deepEqual(await listLatestReportVersions('org',sql),[]);
   });
 });
 

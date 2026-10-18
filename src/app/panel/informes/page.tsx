@@ -13,15 +13,15 @@ export default async function ReportsPage({searchParams}:{searchParams:Promise<{
     listLatestReportVersions(orgId),listSharedIncidents(orgId),listLinks(orgId),
   ]);
   const {error}=await searchParams;
-  const eligibleCases=incidents.filter(item=>item.simulated===true&&!item.sharing_revoked_at);
+  const eligibleCases=incidents.filter(item=>!item.sharing_revoked_at);
   const eligible=new Set(eligibleCases.map(item=>item.id));
   const groups=buildLinkGroups(eligibleCases,links.filter(link=>eligible.has(link.incident_a)&&eligible.has(link.incident_b)));
   const byId=new Map(eligibleCases.map(item=>[item.id,item]));
   return <>
     <PageHeader crumbs={[{href:'/panel',label:'Análisis'},{href:'/panel/informes',label:'Informes'}]}
-      title="Informes de investigación" description="Versiones guardadas por analistas para conjuntos de casos ficticios; se indica qué análisis consta en cada caso." />
+      title="Informes de investigación" description="Versiones guardadas por analistas para conjuntos de casos; se indica qué análisis consta en cada uno." />
     {error&&<p role="alert" className="mb-5 rounded-2xl bg-warning-wash p-4 text-sm text-warning-ink">
-      No se guardó el informe. El conjunto debe conservar todos sus casos ficticios compartidos y vínculos vigentes.
+      No se guardó el informe. El conjunto debe conservar todos sus casos compartidos y vínculos vigentes.
     </p>}
     <Card title="Preparar informe" className="mb-6">
       <p className="text-sm text-fg-2">Prepara una versión para cada conjunto identificado. El informe fija todos sus casos, coincidencias y decisiones actuales para revisión humana.</p>
@@ -31,7 +31,7 @@ export default async function ReportsPage({searchParams}:{searchParams:Promise<{
           links={group.links.map(link=>({id:link.id,a:link.incident_a,b:link.incident_b,title:link.reasons.map(reason=>reason.detail).join(' · ')||'Conexión propuesta'}))}
           series={reports.filter(report=>report.snapshot.selected_case_ids.length===group.incidentIds.length&&
             report.snapshot.selected_case_ids.every(id=>group.incidentIds.includes(id)))} />
-      </div>)}</div>:<Empty>Aún no hay un grupo de dos casos ficticios compartidos para el informe.</Empty>}
+      </div>)}</div>:<Empty>Aún no hay un grupo de dos casos compartidos para el informe.</Empty>}
     </Card>
     <Card title="Informes guardados">
       {reports.length?<ul className="divide-y divide-line">{reports.map(report=><li key={report.id} className="py-4">

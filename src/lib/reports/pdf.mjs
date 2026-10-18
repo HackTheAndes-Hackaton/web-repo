@@ -59,12 +59,14 @@ function speaker(value) {
   return {agent:'Asistente',user:'Titular',caller:'Quien llama'}[value]??value??'No identificado';
 }
 
-/** Renders the saved snapshot for one complete fictitious identified group. */
+/** Renders the saved snapshot for one complete identified group. */
 export async function renderReportPdf(report) {
+  // Las versiones anteriores a este campo solo podían contener casos ficticios.
+  const allFictitious=report.snapshot.cases.every(item=>item.simulated!==false&&item.simulated!==null);
   const pdf=await PDFDocument.create();
   pdf.setTitle(`Informe preliminar - ${report.title} - v${report.version}`);
   pdf.setAuthor(`${report.snapshot.organization.name} - PhoneWard`);
-  pdf.setSubject('Informe preliminar de un conjunto de casos ficticios');
+  pdf.setSubject(`Informe preliminar de un conjunto de casos ${allFictitious?'ficticios':'registrados'}`);
   const regular=await pdf.embedFont(StandardFonts.TimesRoman);
   const bold=await pdf.embedFont(StandardFonts.TimesRomanBold);
   const [width,height]=PageSizes.A4;
@@ -158,7 +160,8 @@ export async function renderReportPdf(report) {
     ['Preparado por',report.created_by_name],
     ['Alcance',`${report.snapshot.cases.length} casos y ${report.snapshot.links.length} vínculos del conjunto identificado`],
     ['Intervenciones registradas',report.snapshot.cases.reduce((sum,item)=>sum+(item.transcript?.length??0),0)],
-    ['Carácter','Documento de prueba con casos ficticios. Requiere revisión humana antes de cualquier remisión.'],
+    ['Carácter',allFictitious?'Documento de prueba con casos ficticios. Requiere revisión humana antes de cualquier remisión.':
+      'Informe preliminar basado en casos registrados. Requiere revisión humana antes de cualquier remisión.'],
   ]);
 
   section(1,'Objeto y alcance');
@@ -178,7 +181,7 @@ export async function renderReportPdf(report) {
   ]);
   paragraph(report.summary,{size:9});
 
-  section(3,'Relación de casos del conjunto');
+  section(3,'Relación de casos del conjunto',195);
   table([
     {label:'Caso',width:0.15},{label:'Fecha de inicio',width:0.25},
     {label:'Canal',width:0.18},{label:'Riesgo',width:0.18},{label:'Clasificación',width:0.24},
@@ -248,6 +251,9 @@ export async function renderReportPdf(report) {
     link.reasons.map(reason=>reason.detail).join('; ')||'No consta',
   ]));
   for(const [index,link] of report.snapshot.links.entries()) {
+    const reviewedSnapshot=link.reviewed_evidence?.evidence_snapshot;
+    const comparison=(link.status==='confirmado'&&reviewedSnapshot
+      ?reviewedSnapshot:link.evidence_snapshot)?.ai_explanation;
     twoColumn([
       ['ID del vínculo',link.id],['Casos (IDs)',`${link.incident_a} / ${link.incident_b}`],
       ['Estado al guardar',link.status],['Puntuación indicativa',percent(link.score)],
@@ -255,12 +261,10 @@ export async function renderReportPdf(report) {
       ['Versión de evidencia',link.evidence_version],
       ['Revisión humana',link.reviewed_at?`${value(link.reviewed_by)} - ${date(link.reviewed_at)}`:'Pendiente o no registrada'],
       ['Versión revisada',link.reviewed_evidence_version],['Nota del analista',link.note],
+      ['Comparación Maritime',comparison?.status==='completed'?'Completada':'No consta una comparación completa'],
     ],`${index+1}. ${caseRef(link.incident_a)} / ${caseRef(link.incident_b)}`);
     if(link.reasons.length) table([{label:'Tipo de coincidencia',width:0.30},{label:'Detalle',width:0.70}],
       link.reasons.map(reason=>[reason.kind,reason.detail]));
-    const reviewedSnapshot=link.reviewed_evidence?.evidence_snapshot;
-    const comparison=(link.status==='confirmado'&&reviewedSnapshot
-      ?reviewedSnapshot:link.evidence_snapshot)?.ai_explanation;
     if(comparison?.status==='completed') {
       twoColumn([
         ['Comportamiento',comparison.behavior_similarity],
@@ -269,7 +273,7 @@ export async function renderReportPdf(report) {
         ['Fecha de comparación',date(comparison.generated_at)],
         ['Limitaciones',Array.isArray(comparison.limitations)?comparison.limitations.join('; '):null],
       ],'Comparación Maritime');
-    } else paragraph('No consta una comparación Maritime completa al guardar esta versión.');
+    }
   }
 
   section(7,'Limitaciones y trazabilidad',190);
@@ -284,10 +288,12 @@ export async function renderReportPdf(report) {
   const pages=pdf.getPages();
   for(const [index,current] of pages.entries()) {
     current.drawText('PHONEWARD  |  INFORME PRELIMINAR DE ANÁLISIS',{x:margin,y:height-34,size:8.5,font:bold,color:ink});
-    current.drawText('CASOS FICTICIOS - PRUEBA',{x:width-margin-132,y:height-34,size:7.5,font:bold,color:ink});
+    current.drawText(allFictitious?'CASOS FICTICIOS - PRUEBA':'INFORME PRELIMINAR',
+      {x:width-margin-132,y:height-34,size:7.5,font:bold,color:ink});
     current.drawLine({start:{x:margin,y:height-44},end:{x:width-margin,y:height-44},thickness:0.7,color:rule});
     current.drawLine({start:{x:margin,y:52},end:{x:width-margin,y:52},thickness:0.6,color:rule});
-    current.drawText('PhoneWard | documento preliminar | casos ficticios',{x:margin,y:36,size:7.5,font:regular,color:ink});
+    current.drawText(`PhoneWard | documento preliminar${allFictitious?' | casos ficticios':''}`,
+      {x:margin,y:36,size:7.5,font:regular,color:ink});
     current.drawText(`Página ${index+1} de ${pages.length}`,{x:width-margin-70,y:36,size:7.5,font:regular,color:ink});
   }
   return pdf.save();
