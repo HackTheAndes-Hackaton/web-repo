@@ -7,14 +7,15 @@ Este proyecto tiene dos partes:
 - **API gateway (`/api/v1`)**: REST con una entrada por entidad. Por aquí envían sus datos el **servidor de llamadas**
   y el **servicio de IA**. Se autentica con API key.
 
-La captura de audio y el análisis con IA viven en otros servicios; este proyecto solo recibe, guarda y muestra.
+La captura de audio vive en otro servicio. La web solicita a Maritime los hallazgos de llamadas ficticias, valida la respuesta, guarda versiones de informe y las muestra al analista.
 
 Next.js 16 (App Router) + Postgres (Supabase, con `pgvector`).
 
 **Hallazgos finales para Perú:** [contrato pe-v1](docs/HALLAZGOS_PERU.md).
 `POST /api/v1/incidents/{id}/findings` recibe el cierre completo en una transacción,
-con sesión correlacionada, UUID idempotente y revisión creciente. No llama aún a Grok.
+con sesión correlacionada, UUID idempotente y revisión creciente. Los informes ficticios usan Maritime desde la web.
 Teléfonos, cuentas, CCI, billeteras y montos se normalizan en el servidor para Perú.
+El panel guarda versiones de informe, muestra el resumen en el dashboard y permite descargar un PDF al solicitarlo.
 
 **Actualización de la base existente:** consulta [ACTUALIZAR_SUPABASE.md](docs/ACTUALIZAR_SUPABASE.md).
 Incluye los campos del móvil, muestras de voz compatibles y revisiones con evidencia conservada.

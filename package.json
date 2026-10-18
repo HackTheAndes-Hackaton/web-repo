@@ -13,6 +13,8 @@
     "test:voice": "node --import ./tests/register-ts.mjs --test tests/voice-matches.test.mjs",
     "test:maritime": "node --import ./tests/register-ts.mjs --test tests/maritime.test.mjs tests/maritime-links.test.mjs",
     "test:report": "node --conditions=react-server --env-file-if-exists=.env.local scripts/probar-reporte-maritime.mjs",
+    "test:flow": "node --import ./tests/register-ts.mjs --test tests/report-flow.test.mjs",
+    "test:link": "node --conditions=react-server --env-file-if-exists=.env.local scripts/probar-vinculo-maritime.mjs",
     "db:local": "node scripts/local-db.mjs"
   },
   "dependencies": {

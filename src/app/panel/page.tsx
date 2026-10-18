@@ -7,6 +7,7 @@ import { CallerNumber, Card, Empty, IconBubble, PulsingShield, RiskBadge, ScamTy
 import { fmtDateTime, fmtDay } from "@/lib/format";
 import { requireAnalyst } from "@/lib/panel";
 import { caseCode, dashboardData } from "@/lib/repo";
+import { listLatestReportVersions } from "@/lib/reports/versions";
 import { ENTITY_LABELS, SIGNAL_LABELS, scamTypeLabel, type EntityKind, type SignalType } from "@/lib/types";
 
 function Delta({ now, prev }: { now: number; prev: number }) {
@@ -79,7 +80,8 @@ function CountList({
 
 export default async function Dashboard() {
   const { orgId } = await requireAnalyst();
-  const data = await dashboardData(orgId);
+  const [data, reports] = await Promise.all([dashboardData(orgId), listLatestReportVersions(orgId)]);
+  const latestReport = reports[0];
   const byDay = data.byDay.map((d) => ({ ...d, label: fmtDay(d.day) }));
   const signals = data.signalCounts.map((s) => ({ label: SIGNAL_LABELS[s.type as SignalType] ?? s.type, n: s.n }));
   const total = data.kpis.total || 1;
@@ -147,6 +149,22 @@ export default async function Dashboard() {
           value={data.kpis.groups}
           footer={<span className="text-xs text-muted">{data.kpis.links} conexiones entre casos</span>}
         />
+      </section>
+
+      <section className="mt-6 rounded-3xl bg-surface p-5 shadow-soft sm:p-6" aria-label="Último informe guardado">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h2 className="text-lg font-bold">Informe de investigación</h2>
+            <p className="mt-1 text-xs text-muted">Resumen de la última versión guardada por un analista. Solo casos ficticios.</p>
+          </div>
+          <Link href="/panel/informes" className="text-sm font-semibold text-accent-ink hover:underline">Ver informes →</Link>
+        </div>
+        {latestReport ? <div className="mt-4">
+          <Link href={`/panel/informes/${latestReport.id}`} className="font-semibold text-accent-ink hover:underline">{latestReport.title} · v{latestReport.version}</Link>
+          <p className="mt-1 text-xs text-muted">{latestReport.snapshot.cases.length} casos · {latestReport.snapshot.links.length} vínculos · {fmtDateTime(latestReport.created_at)}</p>
+          <p className="mt-3 line-clamp-4 text-sm leading-relaxed text-fg-2">{latestReport.summary}</p>
+          <a href={`/panel/informes/${latestReport.id}/pdf`} className="mt-3 inline-block text-sm font-semibold text-accent-ink hover:underline">Descargar PDF</a>
+        </div> : <p className="mt-4 text-sm text-fg-2">Aún no hay un informe guardado. Puedes prepararlo desde Vínculos.</p>}
       </section>
 
       <div className="mt-6 grid gap-6 lg:grid-cols-3">

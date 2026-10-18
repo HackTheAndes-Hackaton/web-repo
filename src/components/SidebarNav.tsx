@@ -2,9 +2,9 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { AudioLines, Ban, FolderOpen, KeyRound, LayoutDashboard, Network } from "lucide-react";
+import { AudioLines, Ban, FileText, FolderOpen, KeyRound, LayoutDashboard, Network } from "lucide-react";
 
-const ICONS = { dashboard: LayoutDashboard, cases: FolderOpen, links: Network, blocked: Ban, voices: AudioLines, key: KeyRound };
+const ICONS = { dashboard: LayoutDashboard, cases: FolderOpen, links: Network, reports: FileText, blocked: Ban, voices: AudioLines, key: KeyRound };
 
 export interface NavItem {
   href: string;

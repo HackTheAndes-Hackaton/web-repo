@@ -29,7 +29,7 @@ export async function finalizeCase(org:string, value:unknown, actor:string, opti
   const claim = await sql.begin(async tx => {
     // La autorización de pruebas pertenece a la web, nunca al cliente móvil ni a voz.
     if (demoAuthorized) await tx`insert into incidents(id,org_id,agent_session_id,started_at,simulated,channel,title)
-      values (${id},${org},${input.session_id},${input.started_at},true,${input.channel},'Caso ficticio · análisis pendiente')
+      values (${id},${org},${input.session_id},${input.started_at},true,${input.channel},'Llamada ficticia')
       on conflict (id) do nothing`;
     const [current] = await tx`select * from incidents where id=${id} and org_id=${org} for update`;
     if (!current) throw notFound("Incidente autorizado desde la web");
