@@ -12,6 +12,7 @@ export const audioInput = z.object({
   audio_base64: z.string().min(42728).max(640060),
   source: z.enum(["webrtc_microphone", "provider_mixed"]),
   risk_percent: z.number().int().min(0).max(100).nullable(),
+  simulated: z.boolean().default(false),
 }).strict();
 
 const digest = (value: string | Buffer) => createHash("sha256").update(value).digest("hex");
@@ -49,21 +50,23 @@ export async function saveAudio(org: string, value: unknown, connection?: Sql) {
     await tx`select pg_advisory_xact_lock(hashtextextended(${incident},0))`;
     const [existing] = await tx`select id,incident_id,sha256,duration_s,source,speaker,review_status,created_at from audio_fragments where id=${id}`;
     if (existing) {
-      const [parent] = await tx`select consent_snapshot from incidents where id=${incident} and org_id=${org}`;
+      const [parent] = await tx`select consent_snapshot,simulated from incidents where id=${incident} and org_id=${org}`;
       if (parent?.consent_snapshot?.voice_storage !== true) throw new ApiError(403,"storage_revoked","La conservación del incidente no está autorizada.");
+      if (parent.simulated !== input.simulated) throw new ApiError(409,"source_conflict","No se mezclan pruebas con llamadas reales.");
       if (existing.sha256 !== hash || existing.source !== input.source) throw new ApiError(409,"idempotency_conflict","El identificador ya corresponde a otro fragmento.");
       return existing;
     }
     const [{ n }] = await tx`select count(*)::int n from audio_fragments where incident_id=${incident}`;
     if (n >= 6) throw new ApiError(429,"clip_limit","Máximo seis fragmentos por sesión.");
-    await tx`insert into incidents (id,org_id,agent_session_id,title,channel,risk_score,risk_level,verdict,consent_snapshot,analysis_meta)
-      values (${incident},${org},${input.session_id},'Audio autorizado · revisión pendiente','webrtc',${input.risk_percent ?? 0},
+    await tx`insert into incidents (id,org_id,agent_session_id,title,channel,simulated,risk_score,risk_level,verdict,consent_snapshot,analysis_meta)
+      values (${incident},${org},${input.session_id},'Audio autorizado · revisión pendiente','webrtc',${input.simulated},${input.risk_percent ?? 0},
       ${input.risk_percent === null ? 'bajo' : input.risk_percent >= 70 ? 'alto' : input.risk_percent >= 40 ? 'medio' : 'bajo'},
       ${input.risk_percent === null ? 'none' : 'suspicious'},
       '{"voice_storage":true,"voice_reference":false}'::jsonb,
       '{"provisional":true,"identity_verified":false,"audio_speaker":"unknown"}'::jsonb) on conflict (id) do nothing`;
-    const [parent] = await tx`select org_id,consent_snapshot from incidents where id=${incident} for update`;
+    const [parent] = await tx`select org_id,consent_snapshot,simulated from incidents where id=${incident} for update`;
     if (parent?.org_id !== org || parent.consent_snapshot?.voice_storage !== true) throw new ApiError(403,"storage_revoked","La conservación del incidente no está autorizada.");
+    if (parent.simulated !== input.simulated) throw new ApiError(409,"source_conflict","No se mezclan pruebas con llamadas reales.");
     if (input.risk_percent !== null) {
       await tx`update incidents set risk_score=greatest(risk_score,${input.risk_percent}),
         risk_level=case when greatest(risk_score,${input.risk_percent})>=70 then 'alto' when greatest(risk_score,${input.risk_percent})>=40 then 'medio' else 'bajo' end,
