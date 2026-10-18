@@ -16,6 +16,7 @@ import { getVapiCall } from "../src/lib/api/vapi.ts";
 import { buildLinkGroups } from "../src/lib/link-groups.ts";
 import { getIncidentDetail, dashboardData, navCounts, listLinks, listBlockedNumbers } from "../src/lib/repo.ts";
 import { createSuspect, listSuspects, SuspectError, unassignCase } from "../src/lib/suspects.ts";
+import { listScamVoices, reviewVoice } from "../src/lib/voices.ts";
 import { commitFindings, findingsInput } from "../src/lib/api/findings.ts";
 import { finalizeCase } from "../src/lib/api/case-finalizations.ts";
 import { explainPendingLink, explainTopPendingLinks } from "../src/lib/api/link-explanations.ts";
@@ -947,6 +948,45 @@ test('números bloqueados: cuenta bloqueos y personas por número, sin mezclar f
       assert.equal(rows[0].calls,3);
       assert.equal(rows[0].last_blocked,'2026-10-18T11:00:00.000Z');
       assert.equal((await listBlockedNumbers('other'))[0].blocks,1);
+    } finally { delete globalThis.__sql; delete globalThis.__dbReady; }
+  });
+});
+
+test('voces de estafadores: agrupa voces parecidas, solo de estafas propias, y confirma o descarta sus huellas', async () => {
+  await database(async (_db,sql) => {
+    await fixture(sql);
+    await sql`update incidents set verdict='scam', started_at='2026-10-18T10:00:00Z' where id in ('a','b')`;
+    await sql`insert into incidents(id,org_id,simulated,verdict,consent_snapshot,started_at) values
+      ('c','org',false,'scam','{"voice_storage":true,"voice_reference":false}','2026-10-18T11:00:00Z'),
+      ('d','org',false,'safe','{"voice_storage":true}','2026-10-18T12:00:00Z'),
+      ('e','other',false,'scam','{"voice_storage":true}','2026-10-18T12:00:00Z')`;
+    const vec=(...head)=>'['+[...head,...Array(16-head.length).fill(0)].join(',')+']';
+    const sample=(id,inc,v)=>sql`insert into voice_samples(id,incident_id,embedding,model_id,model_version,speaker,quality_status)
+      values (${id},${inc},${v}::extensions.vector,'m','1','caller','usable')`;
+    await sample('va','a',vec(1,0.05)); await sample('vb','b',vec(1,0.1)); await sample('vc','c',vec(0,1));
+    await sample('vd','d',vec(1,0)); await sample('ve','e',vec(1,0));
+    globalThis.__sql=sql;
+    globalThis.__dbReady=Promise.resolve();
+    try {
+      let voices=await listScamVoices('org');
+      assert.equal(voices.length,2);
+      assert.deepEqual(voices.map((v)=>v.calls.map((c)=>c.id).sort()),[['a','b'],['c']]);
+      assert.ok(voices[0].similarity>0.99);
+      assert.equal(voices[1].similarity,null);
+      const session={userId:'analyst',name:'Analista',role:'analista',orgId:'org'};
+      await assert.rejects(reviewVoice(session,['e'],'confirmar'),/no pertenece/);
+      assert.equal(await reviewVoice(session,['a','b'],'confirmar'),2);
+      const [va]=await sql`select review_status,reference_enabled from voice_samples where id='va'`;
+      assert.equal(va.review_status,'aprobada'); assert.equal(va.reference_enabled,true);
+      // Sin permiso de referencia, la voz se confirma pero no se usa como referencia.
+      await reviewVoice(session,['c'],'confirmar');
+      assert.equal((await sql`select reference_enabled from voice_samples where id='vc'`)[0].reference_enabled,false);
+      await reviewVoice(session,['c'],'descartar');
+      const [vc]=await sql`select review_status,reference_enabled from voice_samples where id='vc'`;
+      assert.equal(vc.review_status,'rechazada'); assert.equal(vc.reference_enabled,false);
+      voices=await listScamVoices('org');
+      assert.deepEqual(voices.map((v)=>v.status),['confirmada','descartada']);
+      assert.equal((await sql`select count(*)::int n from actions where kind='voice_review'`)[0].n,4);
     } finally { delete globalThis.__sql; delete globalThis.__dbReady; }
   });
 });
