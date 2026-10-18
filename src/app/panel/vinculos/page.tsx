@@ -260,7 +260,6 @@ function GroupCard({ group, cases, suspects, reports }: { group: LinkGroup<LinkV
         ))}
       </div>
       )}
-      <p className="mt-4 text-xs text-muted">El grupo reúne conexiones directas e indirectas. Pertenecer a la misma red no confirma una conexión entre todos sus casos ni una misma persona.</p>
       <details className="mt-5 border-t border-line pt-4">
         <summary className="cursor-pointer text-sm font-semibold text-accent-ink">
           {group.links.length === 1
@@ -385,7 +384,8 @@ export default async function LinksPage({searchParams}:{searchParams:Promise<{in
         />
       </Card>
 
-      <h2 className="mt-8 mb-4 text-[17px] font-semibold">Grupos de casos relacionados</h2>
+      <h2 className="mt-8 mb-1 text-[17px] font-semibold">Grupos de casos relacionados</h2>
+      <p className="mb-4 text-sm text-muted">Estar en el mismo grupo no confirma una conexión entre todos sus casos ni una misma persona.</p>
       {groups.length ? (
         <ul className="space-y-6">
           {groups.map((group) => (

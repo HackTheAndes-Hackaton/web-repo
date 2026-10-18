@@ -1,11 +1,11 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
-import { Clock, FolderOpen, Hash, Mic, PhoneIncoming, PhoneOutgoing, ShieldAlert, UserRound, UserRoundSearch } from "lucide-react";
+import { Clock, Hash, ShieldAlert, UserRound, UserRoundSearch } from "lucide-react";
 import { fmtDateTime, fmtDuration, fmtPhone, pct } from "@/lib/format";
 import { caseCode, type IncidentDetail } from "@/lib/repo";
-import { channelLabel, scamTypeLabel } from "@/lib/types";
+import { scamTypeLabel } from "@/lib/types";
 import { ComplaintSheet, Conversation, EntityTable, RiskMeter, SignalList } from "./incident-parts";
-import { LinkReasons } from "./links-ui";
+import { commonTrait } from "./LinkGraph";
 import { PrintButton } from "./PrintButton";
 import { NetworkOriginPanel } from "./NetworkOriginPanel";
 import { CallerNumber, Card, IconBubble, PageHeader, Pill, RiskBadge, ScamTypeChip, VerdictBadge } from "./ui";
@@ -53,10 +53,12 @@ function Fact({
   );
 }
 
-const DIRECTION = { incoming: "Llamada entrante", outgoing: "Llamada saliente" };
+/** Lo justo para entender el caso de un vistazo: el resto está en Vínculos. */
+const RELATED_SHOWN = 3;
+const LOG_SHOWN = 5;
 
 export function IncidentReport({ detail, tab = "ia" }: { detail: IncidentDetail; tab?: ReportTab }) {
-  const { incident, transcript, signals, entities, actions, voiceSamples, owner, sharedOrg, links, relatedGroup, relatedCases, suspect } = detail;
+  const { incident, transcript, signals, entities, actions, voiceSamples, owner, links, relatedGroup, relatedCases, suspect } = detail;
   const generation = incident.analysis_meta.report_generation as { status?: string } | undefined;
   const here = `/panel/casos/${incident.id}`;
   const number = fmtPhone(incident.caller_e164 ?? incident.caller_number_raw);
@@ -126,25 +128,20 @@ export function IncidentReport({ detail, tab = "ia" }: { detail: IncidentDetail;
         <div className="min-w-0 space-y-6">
           <section className="rounded-3xl bg-surface p-6 shadow-soft">
             <h2 className="text-[17px] font-semibold">Resumen de la IA</h2>
-            <div className="mt-4 grid gap-3 sm:grid-cols-2">
-              <Fact icon={<ShieldAlert size={17} aria-hidden />} tone="critical" label="Tipo de estafa">
-                {scamTypeLabel(incident.scam_type) ?? <span className="font-normal text-muted">Sin clasificar</span>}
-              </Fact>
-              <Fact icon={<UserRound size={17} aria-hidden />} tone="warning" label="Se hace pasar por">
-                {incident.impersonating ?? <span className="font-normal text-muted">No identificado</span>}
-              </Fact>
-              <Fact
-                icon={incident.direction === "outgoing" ? <PhoneOutgoing size={17} aria-hidden /> : <PhoneIncoming size={17} aria-hidden />}
-                tone="accent"
-                label={incident.direction ? DIRECTION[incident.direction] : "Número que llamó"}
-              >
-                {number ? <span className="tabular">{number}</span> : <span className="font-normal text-muted">No registrado</span>}
-                {incident.caller_name && <span className="block text-sm font-normal text-fg-2">{incident.caller_name}</span>}
-              </Fact>
-              <Fact icon={<Mic size={17} aria-hidden />} tone="good" label="Canal">
-                {channelLabel(incident.channel)}
-              </Fact>
-            </div>
+            {(scamTypeLabel(incident.scam_type) || incident.impersonating) && (
+              <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                {scamTypeLabel(incident.scam_type) && (
+                  <Fact icon={<ShieldAlert size={17} aria-hidden />} tone="critical" label="Tipo de estafa">
+                    {scamTypeLabel(incident.scam_type)}
+                  </Fact>
+                )}
+                {incident.impersonating && (
+                  <Fact icon={<UserRound size={17} aria-hidden />} tone="warning" label="Se hace pasar por">
+                    {incident.impersonating}
+                  </Fact>
+                )}
+              </div>
+            )}
             {generation?.status === "running" && <p className="mt-4 text-sm text-muted" role="status">Preparando el resumen automático.</p>}
             {generation?.status === "completed" && <p className="mt-4 text-xs text-muted">Resumen automático · pendiente de revisión humana.</p>}
             {generation?.status === "failed" && <p className="mt-4 text-sm text-warning-ink" role="status">No se pudo elaborar el resumen automático. El fallo no indica que la llamada sea segura.</p>}
@@ -163,10 +160,7 @@ export function IncidentReport({ detail, tab = "ia" }: { detail: IncidentDetail;
                 <strong>Recomendación mostrada:</strong> {incident.recommendation}
               </p>
             )}
-            <p className="mt-4 text-xs text-muted">
-              El análisis de riesgo lo generó la IA; los metadatos técnicos indican su fuente. El número mostrado o un nombre pueden ser falsos: puede apoyar la
-              preparación de una denuncia, pero no es una denuncia ni una identificación verificada.
-            </p>
+            <p className="mt-4 text-xs text-muted">Análisis de la IA. El número o un nombre pueden ser falsos: no es una denuncia ni una identificación.</p>
           </section>
 
           <nav className="no-print flex gap-2 overflow-x-auto pb-1" aria-label="Secciones del reporte">
@@ -232,51 +226,44 @@ export function IncidentReport({ detail, tab = "ia" }: { detail: IncidentDetail;
             />
           </SideSection>
 
-          <SideSection title="Propiedades">
-            <dl className="divide-y divide-line">
-              <Property label="Persona">{owner?.name ?? "Sin registrar"}</Property>
-              <Property label="Inicio">{fmtDateTime(incident.started_at)}</Property>
-              <Property label="Fin">{incident.ended_at ? fmtDateTime(incident.ended_at) : "En curso"}</Property>
-              <Property label="Organización">{sharedOrg?.name ?? "—"}</Property>
-              <Property label="ID externo">
-                <span className="tabular break-all">{incident.external_id ?? "—"}</span>
-              </Property>
-              <Property label="Muestras de voz">
-                {voiceSamples}
-                <span className="block text-xs text-muted">Dato biométrico sensible; similitud = pista, no identificación.</span>
-              </Property>
-            </dl>
-          </SideSection>
+          {(owner || incident.external_id || voiceSamples > 0 || incident.status === "en_curso") && (
+            <SideSection title="Propiedades">
+              <dl className="divide-y divide-line">
+                {owner && <Property label="Persona">{owner.name}</Property>}
+                {incident.status === "en_curso" && <Property label="Estado">En curso</Property>}
+                {incident.external_id && (
+                  <Property label="ID externo"><span className="tabular break-all">{incident.external_id}</span></Property>
+                )}
+                {voiceSamples > 0 && <Property label="Muestras de voz">{voiceSamples} · solo como pista</Property>}
+              </dl>
+            </SideSection>
+          )}
 
           <SideSection title={`Red de casos (${relatedGroup?.incidentIds.length ?? 0})`}>
             {relatedGroup ? (
               <>
-              <p className="mb-3 text-xs text-muted">{relatedGroup.incidentIds.length} casos, incluido este · {relatedGroup.links.length} conexiones.</p>
-              <Link href={`/panel/vinculos#${relatedGroup.anchor}`} className="mb-3 inline-block text-sm font-semibold text-accent-ink hover:underline">Ver el grupo completo</Link>
-              <ul className="space-y-3">
-                {relatedCases.map((other) => {
-                  const l = links.find((link) => link.incident_a === other.id || link.incident_b === other.id);
-                  const isA = l?.incident_a === incident.id;
+              {(() => {
+                const trait = commonTrait(relatedGroup.links);
+                return trait && <p className="mb-3 rounded-xl bg-accent-wash px-3 py-2 text-sm font-medium text-accent-ink">{trait}</p>;
+              })()}
+              <ul className="divide-y divide-line">
+                {[...links].sort((a, b) => b.score - a.score).slice(0, RELATED_SHOWN).map((l) => {
+                  const otherId = l.incident_a === incident.id ? l.incident_b : l.incident_a;
+                  const other = relatedCases.find((c) => c.id === otherId);
                   return (
-                    <li key={other.id}>
-                      <Link href={`/panel/casos/${other.id}`} className="block rounded-2xl bg-surface-2 p-4 hover:bg-accent-wash">
-                        <div className="flex items-start justify-between gap-2">
-                          <span className="flex gap-1.5 text-sm font-semibold">
-                            <FolderOpen size={14} className="mt-0.5 shrink-0 text-muted" aria-hidden />
-                            {other.title}
-                          </span>
-                          {l && <span className="tabular shrink-0 text-sm font-bold text-accent-ink">{pct(l.score)}</span>}
-                        </div>
-                        <div className="mt-2 flex flex-wrap gap-1.5">
-                          <span className="text-xs font-medium text-accent-ink">{other.direct ? "Conexión directa" : "Conexión indirecta"}</span>
-                          {l && <ScamTypeChip type={isA ? l.b_scam_type : l.a_scam_type} />}
-                        </div>
-                        {l ? <LinkReasons reasons={l.reasons.filter((r) => !/guion/i.test(r.detail))} /> : <p className="mt-2 text-xs text-muted">Relacionado a través de otros casos del grupo; sin una conexión directa registrada con este caso.</p>}
+                    <li key={l.id}>
+                      <Link href={`/panel/casos/${otherId}`} className="flex items-center gap-2 py-2 text-sm hover:text-accent-ink">
+                        <span className="tabular shrink-0 font-semibold">{caseCode(otherId)}</span>
+                        <span className="min-w-0 flex-1 truncate text-fg-2">{other?.title}</span>
+                        <span className="tabular shrink-0 font-bold text-accent-ink">{pct(l.score)}</span>
                       </Link>
                     </li>
                   );
                 })}
               </ul>
+              <Link href={`/panel/vinculos#${relatedGroup.anchor}`} className="mt-2 inline-block text-sm font-semibold text-accent-ink hover:underline">
+                {relatedCases.length > RELATED_SHOWN ? `Ver los ${relatedGroup.incidentIds.length} casos del grupo` : "Ver el grupo"} →
+              </Link>
               </>
             ) : (
               <p className="text-sm text-muted">La IA no encontró casos relacionados.</p>
@@ -287,6 +274,7 @@ export function IncidentReport({ detail, tab = "ia" }: { detail: IncidentDetail;
             <ol className="space-y-2.5">
               {actions
                 .filter((a) => a.kind !== "link_review")
+                .slice(-LOG_SHOWN)
                 .map((a) => (
                   <li key={a.id} className="relative border-l border-line pl-3 text-sm">
                     <span className="absolute top-1.5 -left-[3px] h-1.5 w-1.5 rounded-full bg-line-strong" aria-hidden />

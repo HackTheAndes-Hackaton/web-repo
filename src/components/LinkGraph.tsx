@@ -43,7 +43,7 @@ function components(incidents: IncidentSummary[], links: LinkView[]) {
 }
 
 /** Dato que comparte la mayoría de las conexiones del grupo (número, cuenta, voz…), para rotular el centro. */
-function commonTrait(links: LinkView[]) {
+export function commonTrait(links: LinkView[]) {
   const counts = new Map<string, number>();
   for (const l of links) {
     const seen = new Set<string>();
@@ -237,7 +237,7 @@ export function LinkGraph({
         })}
       </svg>
       <figcaption className="mt-2 flex flex-wrap gap-4 text-xs text-fg-2">
-        <span>Discontinua: pendiente · Continua: confirmada por analista</span>
+        <span>Línea continua: confirmada · discontinua: pendiente</span>
         <span className="flex items-center gap-1.5">
           <svg width="22" height="6" aria-hidden>
             <line x1="1" y1="3" x2="21" y2="3" stroke="var(--accent)" strokeWidth="4" strokeLinecap="round" />
@@ -263,7 +263,7 @@ export function LinkGraph({
             <svg width="14" height="14" viewBox="-7 -7 14 14" aria-hidden>
               <circle r={6} fill="var(--accent-wash)" stroke="var(--accent)" strokeWidth={1.5} />
             </svg>
-            Grupo grande ({HUB_FROM}+ casos): el centro resume lo que comparten; cada punto es un caso
+            Centro: lo que comparte un grupo grande
           </span>
         )}
       </figcaption>

@@ -88,20 +88,20 @@ export function ComplaintSheet({
   const mentioned = entities.filter((e) => e.provenance === "mencionado");
   const accounts = mentioned.filter((e) => e.kind === "cuenta" || e.kind === "telefono");
   const amounts = mentioned.filter((e) => e.kind === "monto");
-  const none = <span className="font-normal text-muted">No mencionado</span>;
   return (
     <div>
       <dl className="divide-y divide-line">
         <SheetRow label="Número que llamó"><span className="tabular">{caller ?? "Oculto"}</span></SheetRow>
         <SheetRow label="Fecha y hora">{startedAt}</SheetRow>
         <SheetRow label="Duración">{duration}</SheetRow>
-        <SheetRow label="Se hizo pasar por">{impersonating ?? none}</SheetRow>
-        <SheetRow label="Cuentas / Yape">
-          {accounts.length ? (
+        {/* Solo lo que se dijo: una fila vacía no aporta a la denuncia. */}
+        {impersonating && <SheetRow label="Se hizo pasar por">{impersonating}</SheetRow>}
+        {accounts.length > 0 && (
+          <SheetRow label="Cuentas / Yape">
             <ul className="space-y-0.5">{accounts.map((e) => <li key={e.id} className="tabular">{e.value}</li>)}</ul>
-          ) : none}
-        </SheetRow>
-        <SheetRow label="Montos">{amounts.length ? amounts.map((e) => e.value).join(", ") : none}</SheetRow>
+          </SheetRow>
+        )}
+        {amounts.length > 0 && <SheetRow label="Montos">{amounts.map((e) => e.value).join(", ")}</SheetRow>}
       </dl>
       {keyLines.length > 0 && (
         <div className="mt-3">
@@ -113,9 +113,7 @@ export function ComplaintSheet({
           </ul>
         </div>
       )}
-      <p className="mt-3 text-xs text-muted">
-        Datos tal como se dijeron en la llamada: pueden ser falsos. Sirven para preparar la denuncia, no la reemplazan.
-      </p>
+      <p className="mt-3 text-xs text-muted">Tal como se dijo en la llamada; puede ser falso.</p>
     </div>
   );
 }

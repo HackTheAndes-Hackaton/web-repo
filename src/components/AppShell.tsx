@@ -1,7 +1,5 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
-import { LogOut } from "lucide-react";
-import { logout } from "@/app/actions";
 import { APP_NAME } from "@/lib/format";
 import type { Session } from "@/lib/types";
 import { LiveRefresh } from "./LiveRefresh";
@@ -49,14 +47,6 @@ export function AppShell({
           </Link>
           <div className="ml-auto flex items-center gap-2 lg:hidden">
             <LiveRefresh mode={liveMode} />
-            <form action={logout}>
-              <button
-                className="grid h-8 w-8 place-items-center rounded-full text-white/70 hover:bg-white/15 hover:text-white"
-                aria-label="Cambiar perfil"
-              >
-                <LogOut size={16} aria-hidden />
-              </button>
-            </form>
           </div>
         </div>
 
@@ -76,15 +66,6 @@ export function AppShell({
               <div className="truncate text-sm font-semibold">{session.name}</div>
               <div className="truncate text-xs text-white/65">Analista</div>
             </div>
-            <form action={logout}>
-              <button
-                className="grid h-8 w-8 place-items-center rounded-full text-white/70 hover:bg-white/15 hover:text-white"
-                title="Cambiar perfil"
-                aria-label="Cambiar perfil"
-              >
-                <LogOut size={16} aria-hidden />
-              </button>
-            </form>
           </div>
         </div>
       </aside>

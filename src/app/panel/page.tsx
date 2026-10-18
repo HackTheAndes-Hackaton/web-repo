@@ -3,15 +3,12 @@ import { ArrowDownRight, ArrowUpRight, FolderOpen, Minus, Network, ShieldAlert, 
 import type { ReactNode } from "react";
 import { IncidentsByDayChart, SignalBarChart } from "@/components/charts";
 import { LinkGraph } from "@/components/LinkGraph";
-import { LinkReasons } from "@/components/links-ui";
-import { CallerNumber, Card, Empty, IconBubble, PulsingShield, RiskBadge, RiskIcon, ScamTypeChip } from "@/components/ui";
-import { fmtDateTime, fmtDay, pct } from "@/lib/format";
+import { CallerNumber, Card, Empty, IconBubble, PulsingShield, RiskBadge, ScamTypeChip } from "@/components/ui";
+import { fmtDateTime, fmtDay } from "@/lib/format";
 import { requireAnalyst } from "@/lib/panel";
-import { buildLinkGroups } from "@/lib/link-groups";
+import { bucketByCaller } from "@/lib/caller-buckets";
 import { caseCode, dashboardData } from "@/lib/repo";
 import { ENTITY_LABELS, SIGNAL_LABELS, scamTypeLabel, type EntityKind, type SignalType } from "@/lib/types";
-
-const RISK_NAME = { alto: "Alto", medio: "Medio", bajo: "Bajo" };
 
 function Delta({ now, prev }: { now: number; prev: number }) {
   const diff = now - prev;
@@ -86,12 +83,6 @@ export default async function Dashboard() {
   const data = await dashboardData(orgId);
   const byDay = data.byDay.map((d) => ({ ...d, label: fmtDay(d.day) }));
   const signals = data.signalCounts.map((s) => ({ label: SIGNAL_LABELS[s.type as SignalType] ?? s.type, n: s.n }));
-  // Una conexión por grupo: si no, un grupo grande llena la lista con la misma pareja de números.
-  const strongest = buildLinkGroups(data.incidents, data.links)
-    .map((g) => ({ link: [...g.links].sort((a, b) => b.score - a.score)[0], size: g.incidentIds.length, anchor: g.anchor }))
-    .sort((a, b) => b.link.score - a.link.score)
-    .slice(0, 3);
-  const titleOf = new Map(data.incidents.map((i) => [i.id, i.title]));
   const total = data.kpis.total || 1;
   // La red solo muestra casos con al menos una conexión; los casos sueltos no aportan al gráfico.
   const linkedIds = new Set(data.links.flatMap((l) => [l.incident_a, l.incident_b]));
@@ -209,79 +200,10 @@ export default async function Dashboard() {
       </div>
 
       <div className="mt-6 grid gap-6 lg:grid-cols-3">
-        <Card title="Distribución por riesgo">
-          <ul className="space-y-3">
-            {data.riskDist.map((r) => (
-              <li key={r.level} className="grid grid-cols-[5.5rem_1fr_auto] items-center gap-3 text-sm">
-                <span className="flex items-center gap-2 text-fg-2">
-                  <RiskIcon level={r.level} />
-                  {RISK_NAME[r.level]}
-                </span>
-                <span className="h-2.5 overflow-hidden rounded-full bg-surface-2">
-                  <span
-                    className={`block h-full rounded-full ${
-                      r.level === "alto" ? "bg-danger" : r.level === "medio" ? "bg-warning" : "bg-safe"
-                    }`}
-                    style={{ width: `${(r.n / total) * 100}%` }}
-                  />
-                </span>
-                <span className="tabular w-16 text-right">
-                  <span className="font-medium">{r.n}</span> <span className="text-xs text-muted">{pct(r.n / total)}</span>
-                </span>
-              </li>
-            ))}
-          </ul>
-          <p className="mt-4 text-xs text-muted">
-            El riesgo es una estimación a partir de señales observadas, no una confirmación de engaño.
-          </p>
-        </Card>
         <Card title="Señales más frecuentes" className="lg:col-span-2">
           {signals.length ? <SignalBarChart data={signals} /> : <Empty>Sin señales todavía.</Empty>}
         </Card>
-      </div>
-
-      <div className="mt-6 grid gap-6 lg:grid-cols-3">
-        <Card
-          title="Red de posibles vínculos"
-          className="lg:col-span-2"
-          action={
-            <Link href="/panel/vinculos" className="text-xs font-medium text-accent-ink hover:underline">
-              Ver todos →
-            </Link>
-          }
-        >
-          {linked.length ? (
-            <LinkGraph incidents={linked} links={data.links} />
-          ) : (
-            <Empty>La IA todavía no detectó vínculos entre casos.</Empty>
-          )}
-        </Card>
-        <div className="space-y-6">
-          <Card title="Conexiones más fuertes">
-            {strongest.length ? (
-              <ul className="space-y-3">
-                {strongest.map(({ link: l, size, anchor }) => (
-                  <li key={l.id}>
-                    <Link href={`/panel/vinculos#${anchor}`} className="block rounded-2xl bg-surface-2/70 p-3.5 hover:bg-accent-wash">
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="text-xs text-muted">{size > 2 ? `Grupo de ${size} casos · mejor conexión` : "Puntaje"}</span>
-                        <span className="tabular rounded-full bg-warning-wash px-2 text-xs font-bold text-warning-ink">{pct(l.score)}</span>
-                      </div>
-                      <div className="mt-1 text-sm font-semibold leading-snug">
-                        <span className="tabular text-muted">{caseCode(l.incident_a)}</span> {titleOf.get(l.incident_a)}{" "}
-                        <span className="text-muted">↔</span>{" "}
-                        <span className="tabular text-muted">{caseCode(l.incident_b)}</span> {titleOf.get(l.incident_b)}
-                      </div>
-                      <LinkReasons reasons={l.reasons.filter((r) => !/guion/i.test(r.detail))} />
-                    </Link>
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <Empty>La IA todavía no detectó vínculos.</Empty>
-            )}
-          </Card>
-          <Card title="Datos repetidos entre casos">
+        <Card title="Datos repetidos entre casos">
             {data.repeatedEntities.length ? (
               <ul className="divide-y divide-line text-sm">
                 {data.repeatedEntities.map((e) => (
@@ -301,7 +223,23 @@ export default async function Dashboard() {
             )}
             <p className="mt-3 text-xs text-muted">Un número o nombre puede ser falso: orienta, no identifica.</p>
           </Card>
-        </div>
+      </div>
+
+      <div className="mt-6">
+        <Card
+          title="Red de posibles vínculos"
+          action={
+            <Link href="/panel/vinculos" className="text-xs font-medium text-accent-ink hover:underline">
+              Ver todos →
+            </Link>
+          }
+        >
+          {linked.length ? (
+            <LinkGraph incidents={linked} links={data.links} />
+          ) : (
+            <Empty>La IA todavía no detectó vínculos entre casos.</Empty>
+          )}
+        </Card>
       </div>
 
       <section className="mt-6 overflow-hidden rounded-3xl bg-surface shadow-soft">
@@ -322,26 +260,37 @@ export default async function Dashboard() {
               </tr>
             </thead>
             <tbody>
-              {data.incidents.slice(0, 5).map((i) => (
-                <tr key={i.id} className="border-b border-line last:border-0 hover:bg-accent-wash/50">
-                  <td className="px-4 py-3 sm:px-5">
-                    <Link href={`/panel/casos/${i.id}`} className="font-medium hover:underline">
-                      <span className="tabular mr-2 text-xs text-muted">{caseCode(i.id)}</span>
-                      {i.title}
-                    </Link>
-                    <div className="text-xs text-muted">{fmtDateTime(i.started_at)}</div>
-                  </td>
-                  <td className="px-4 py-3">
-                    {i.scam_type ? <ScamTypeChip type={i.scam_type} /> : <span className="text-xs text-muted">Sin clasificar</span>}
-                  </td>
-                  <td className="px-4 py-3">
-                    <CallerNumber incident={i} />
-                  </td>
-                  <td className="px-4 py-3">
-                    <RiskBadge level={i.risk_level} score={i.risk_score} />
-                  </td>
-                </tr>
-              ))}
+              {bucketByCaller(data.incidents).slice(0, 5).map((b) => {
+                const i = b.worst;
+                const many = b.cases.length > 1;
+                const types = [...new Set(b.cases.map((c) => c.scam_type).filter((t): t is string => Boolean(t)))];
+                return (
+                  <tr key={b.key} className="border-b border-line last:border-0 hover:bg-accent-wash/50">
+                    <td className="px-4 py-3 sm:px-5">
+                      {many ? (
+                        <Link href={`/panel/casos?q=${b.digits}`} className="font-medium hover:underline">
+                          {b.cases.length} llamadas del mismo número
+                        </Link>
+                      ) : (
+                        <Link href={`/panel/casos/${i.id}`} className="font-medium hover:underline">
+                          <span className="tabular mr-2 text-xs text-muted">{caseCode(i.id)}</span>
+                          {i.title}
+                        </Link>
+                      )}
+                      <div className="text-xs text-muted">{many ? "Última: " : ""}{fmtDateTime(b.cases[0].started_at)}</div>
+                    </td>
+                    <td className="px-4 py-3">
+                      {types.length ? <ScamTypeChip type={types[0]} /> : <span className="text-muted">—</span>}
+                    </td>
+                    <td className="px-4 py-3">
+                      <CallerNumber incident={i} />
+                    </td>
+                    <td className="px-4 py-3">
+                      <RiskBadge level={i.risk_level} score={i.risk_score} />
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
