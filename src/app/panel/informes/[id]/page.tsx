@@ -27,7 +27,9 @@ export default async function ReportDetail({params}:PageProps<'/panel/informes/[
     <h2 className="mb-4 mt-8 text-lg font-semibold">Casos del conjunto identificado</h2>
     <div className="space-y-4">{report.snapshot.cases.map(item=><Card key={item.id} title={`${caseCode(item.id)} · ${item.title}`}>
       <p className="text-xs text-muted">{fmtDateTime(item.started_at)} · Riesgo {item.risk_level} · {item.channel}</p>
-      <p className="mt-3 text-sm">{item.summary}</p>
+      <p className="mt-3 text-xs text-muted">{(item.maritime.completed ?? Boolean(item.maritime.model_id))
+        ? 'Análisis Maritime completo' : 'Sin análisis Maritime completo registrado'}</p>
+      <p className="mt-2 text-sm">{item.summary?.trim() || 'Sin resumen registrado.'}</p>
       {item.recommendation && <p className="mt-2 text-sm text-fg-2"><strong>Recomendación:</strong> {item.recommendation}</p>}
       {item.maritime.limitations.length>0 && <p className="mt-2 text-xs text-muted">Limitaciones: {item.maritime.limitations.join(' · ')}</p>}
       {item.signals.length>0 && <div className="mt-4"><h3 className="text-sm font-semibold">Hallazgos</h3>

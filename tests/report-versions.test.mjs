@@ -7,6 +7,7 @@ import {PGLiteSocketServer} from '@electric-sql/pglite-socket';
 import postgres from 'postgres';
 import {applyMigrations} from '../scripts/migration-runner.mjs';
 import {createReportVersion,getReportVersion,listLatestReportVersions,ReportVersionError} from '../src/lib/reports/versions.ts';
+import {renderReportPdf} from '../src/lib/reports/pdf.mjs';
 
 async function database(run) {
   const database=await PGlite.create({extensions:{vector}});
@@ -93,6 +94,28 @@ test('rechaza selección sin vínculo, analista ajeno y permisos retirados; ocul
     assert.equal(await getReportVersion('org',saved.id,sql),null);
     assert.deepEqual(await listLatestReportVersions('org',sql),[]);
     await assert.rejects(createReportVersion({...input,seriesId:saved.series_id},sql),error=>error instanceof ReportVersionError&&error.code==='cases_unavailable');
+  });
+});
+
+test('permite el grupo ficticio completo aunque falten permisos del flujo automático, Maritime y resumen',async()=>{
+  await database(async sql=>{
+    await fixture(sql);
+    await sql`update incidents set status='en_curso',summary=null,analysis_meta='{}'::jsonb,
+      consent_snapshot='{}'::jsonb where id='b'`;
+    const report=await createReportVersion(input,sql);
+    assert.deepEqual(report.snapshot.selected_case_ids,['a','b']);
+    assert.equal(report.snapshot.cases.find(item=>item.id==='b').maritime.completed,false);
+    assert.equal(report.snapshot.cases.find(item=>item.id==='b').summary,null);
+    assert.equal(report.snapshot.cases.find(item=>item.id==='b').status,'en_curso');
+    assert.match(report.summary,/Sin resumen registrado/);
+    assert.equal((await getReportVersion('org',report.id,sql)).id,report.id);
+    assert.equal((await listLatestReportVersions('org',sql))[0].id,report.id);
+    const pdf=await renderReportPdf(report);
+    assert.equal(Buffer.from(pdf).toString('latin1',0,5),'%PDF-');
+    if(process.env.TISKZ_MIXED_PDF_SAMPLE_PATH) await (await import('node:fs/promises')).writeFile(process.env.TISKZ_MIXED_PDF_SAMPLE_PATH,pdf);
+    await sql`update incidents set simulated=false where id='b'`;
+    assert.equal(await getReportVersion('org',report.id,sql),null);
+    await assert.rejects(createReportVersion(input,sql),error=>error instanceof ReportVersionError&&error.code==='cases_unavailable');
   });
 });
 

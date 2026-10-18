@@ -223,7 +223,7 @@ function GroupCard({ group, cases, suspects }: { group: LinkGroup<LinkView>; cas
         <span className="rounded-full bg-accent-wash px-3 py-1 text-xs font-semibold text-accent-ink">Red para investigar</span>
       </div>
       <div className="mt-4"><GroupRecord members={members} suspects={suspects} /></div>
-      {group.links.every((link) => link.explanation_eligible) && <Link
+      {members.every((item) => item.simulated === true && !item.sharing_revoked_at) && <Link
         href={`/panel/informes#${group.anchor}`}
         className="mt-4 inline-flex rounded-full border border-line px-4 py-2 text-sm font-semibold hover:bg-surface-2">
         Preparar informe PDF de todo el grupo
@@ -364,7 +364,7 @@ export default async function LinksPage({searchParams}:{searchParams:Promise<{in
       />
 
       {informe && <p role="alert" className="mb-5 rounded-2xl bg-warning-wash p-4 text-sm text-warning-ink">
-        No se guardó el informe. Revisa la selección: todos los casos deben estar autorizados y unidos por los vínculos elegidos.
+        No se guardó el informe. Revisa la selección: todos los casos deben ser ficticios, compartidos y unidos por los vínculos elegidos.
       </p>}
 
       <Card title={`Red de casos · ${groups.length} ${groups.length === 1 ? "grupo" : "grupos"} · ${groupedLinks.length} ${groupedLinks.length === 1 ? "conexión" : "conexiones"}`}>

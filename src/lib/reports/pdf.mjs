@@ -59,7 +59,7 @@ function speaker(value) {
   return {agent:'Asistente',user:'Titular',caller:'Quien llama'}[value]??value??'No identificado';
 }
 
-/** Renders the saved, authorized snapshot for one complete identified group. */
+/** Renders the saved snapshot for one complete fictitious identified group. */
 export async function renderReportPdf(report) {
   const pdf=await PDFDocument.create();
   pdf.setTitle(`Informe preliminar - ${report.title} - v${report.version}`);
@@ -168,11 +168,13 @@ export async function renderReportPdf(report) {
   section(2,'Resumen ejecutivo');
   const confirmed=report.snapshot.links.filter(link=>link.status==='confirmado').length;
   const pending=report.snapshot.links.filter(link=>link.status==='pendiente').length;
+  const maritimeCases=report.snapshot.cases.filter(item=>item.maritime?.completed ?? Boolean(item.maritime?.model_id)).length;
   twoColumn([
     ['Casos documentados',report.snapshot.cases.length],
     ['Vínculos confirmados',confirmed],
     ['Vínculos pendientes',pending],
-    ['Fuente del análisis','Resúmenes y hallazgos Maritime, coincidencias deterministas y decisiones de analistas.'],
+    ['Casos con análisis Maritime verificado',`${maritimeCases} de ${report.snapshot.cases.length}`],
+    ['Fuente de los hallazgos','Datos y resúmenes registrados por caso, coincidencias deterministas y decisiones de analistas; Maritime solo donde se indica.'],
   ]);
   paragraph(report.summary,{size:9});
 
@@ -187,15 +189,18 @@ export async function renderReportPdf(report) {
 
   section(4,'Hallazgos por caso');
   for(const [index,item] of report.snapshot.cases.entries()) {
+    const maritimeReady=item.maritime?.completed ?? Boolean(item.maritime?.model_id);
     twoColumn([
       ['Identificador',item.id],['Inicio',date(item.started_at)],['Cierre',date(item.ended_at)],
       ['Canal',item.channel],['Estado',item.status],['Clasificación',item.verdict],
       ['Riesgo',`${value(item.risk_level)} (${value(item.risk_score)}/100)`],
       ['Tipo de estafa',item.scam_type],['Suplantación declarada',item.impersonating],
       ['Número reportado',item.caller_e164||item.caller_number_raw],
-      ['Modelo Maritime',item.maritime.model_id],['Versión de análisis',item.maritime.prompt_version],
+      ['Análisis Maritime',maritimeReady?'Completado':'No consta un análisis Maritime completo'],
+      ['Modelo Maritime',maritimeReady?item.maritime.model_id:null],
+      ['Versión de análisis',maritimeReady?item.maritime.prompt_version:null],
     ],`${index+1}. ${caseRef(item.id)} - ${item.title}`);
-    paragraph(`Resumen del caso: ${value(item.summary)}`);
+    paragraph(`${maritimeReady?'Resumen Maritime registrado':'Resumen registrado en el caso (origen no verificado como Maritime)'}: ${value(item.summary)}`);
     paragraph(`Recomendación registrada: ${value(item.recommendation)}`);
     if(item.signals.length) {
       subsection('Señales registradas');

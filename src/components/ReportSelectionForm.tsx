@@ -25,7 +25,7 @@ export function ReportSelectionForm({cases,links,series}:{cases:Choice[];links:(
       </label>}
       {withinLimit?<button type="submit" className="rounded-full bg-accent px-4 py-2 text-sm font-semibold text-white hover:brightness-110">Guardar versión del conjunto</button>
         :<p className="text-sm text-warning-ink">Este conjunto supera el límite actual de 20 casos o 50 vínculos y requiere ampliar la capacidad de exportación.</p>}
-      <p className="text-xs text-muted">Usa solo casos ficticios y resúmenes Maritime autorizados. El informe es preliminar y requiere revisión humana.</p>
+      <p className="text-xs text-muted">El informe incluye todos los casos ficticios del conjunto. Cuando un caso no tenga análisis Maritime o resumen, el documento lo indicará. Requiere revisión humana.</p>
     </form>
   </details>;
 }

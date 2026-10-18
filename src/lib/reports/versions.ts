@@ -29,7 +29,7 @@ type EntityRow = {incident_id:string;kind:string;value:string;normalized:string;
 type TranscriptRow = {incident_id:string;idx:number;speaker:string|null;text:string;t_offset:number;flagged:boolean};
 
 export type ReportCase = Omit<CaseRow,"org_id"|"simulated"|"sharing_revoked_at"|"analysis_meta"|"consent_snapshot"> & {
-  maritime:{model_id:string|null;prompt_version:string|null;limitations:string[]};
+  maritime:{model_id:string|null;prompt_version:string|null;limitations:string[];completed?:boolean};
   signals:Omit<SignalRow,"incident_id">[];entities:Omit<EntityRow,"incident_id">[];
   /** Ausente solo en versiones anteriores a la incorporación de conversaciones. */
   transcript?:Omit<TranscriptRow,"incident_id">[];
@@ -52,17 +52,15 @@ function selected(values:string[],min:number,max:number,label:string) {
     throw new ReportVersionError("invalid_selection",`Selecciona entre ${min} y ${max} ${label} diferentes.`);
   return [...values].sort();
 }
-function reportReady(row:CaseRow) {
-  const generation=row.analysis_meta?.report_generation as Record<string,unknown>|undefined;
-  return row.simulated===true && row.status==="finalizado" && !row.sharing_revoked_at &&
-    row.consent_snapshot?.report_storage===true && row.consent_snapshot?.report_sharing===true &&
-    generation?.status==="completed" && generation.provider==="maritime" && Boolean(row.summary?.trim());
+function reportEligible(row:CaseRow) {
+  return row.simulated===true && !row.sharing_revoked_at;
 }
 function maritimeMeta(meta:Record<string,unknown>) {
   const generation=(meta.report_generation??{}) as Record<string,unknown>;
   const limitations=Array.isArray(generation.limitations)?generation.limitations.filter((v):v is string=>typeof v==="string"):[];
   return {model_id:typeof generation.model_id==="string"?generation.model_id:null,
-    prompt_version:typeof generation.prompt_version==="string"?generation.prompt_version:null,limitations};
+    prompt_version:typeof generation.prompt_version==="string"?generation.prompt_version:null,limitations,
+    completed:generation.status==="completed"&&generation.provider==="maritime"};
 }
 function stable(value:unknown):string {
   if(Array.isArray(value)) return `[${value.map(stable).join(',')}]`;
@@ -91,8 +89,8 @@ export async function createReportVersion(input:{orgId:string;analystId:string;c
     const cases=await tx<CaseRow[]>`select id,org_id,simulated,sharing_revoked_at,title,started_at,ended_at,status,channel,
       risk_score,risk_level,verdict,scam_type,impersonating,caller_e164,caller_number_raw,summary,recommendation,
       analysis_meta,consent_snapshot from incidents where id=any(${caseIds}::text[]) and org_id=${input.orgId}`;
-    if(cases.length!==caseIds.length||cases.some(row=>!reportReady(row)))
-      throw new ReportVersionError("cases_unavailable","Todos los casos deben ser ficticios, finalizados, autorizados y tener un resumen Maritime completo.");
+    if(cases.length!==caseIds.length||cases.some(row=>!reportEligible(row)))
+      throw new ReportVersionError("cases_unavailable","Todos los casos deben ser ficticios, pertenecer a la organización y conservar su acceso compartido.");
     const links=await tx<LinkRow[]>`select l.id,l.incident_a,l.incident_b,l.status,l.score,l.voice_sim,l.content_sim,l.reasons,
       l.evidence_snapshot,l.evidence_version,l.reviewed_by,l.reviewed_at,
       l.reviewed_evidence_version,l.reviewed_evidence,l.note
@@ -106,12 +104,7 @@ export async function createReportVersion(input:{orgId:string;analystId:string;c
       throw new ReportVersionError("disconnected_selection","Los vínculos elegidos deben conectar todos los casos seleccionados.");
     const eligibleCases=await tx<Pick<CaseRow,"id"|"org_id"|"simulated"|"sharing_revoked_at">[]>`
       select id,org_id,simulated,sharing_revoked_at from incidents
-      where org_id=${input.orgId} and simulated is true and status='finalizado'
-        and sharing_revoked_at is null and consent_snapshot->>'report_storage'='true'
-        and consent_snapshot->>'report_sharing'='true'
-        and analysis_meta->'report_generation'->>'status'='completed'
-        and analysis_meta->'report_generation'->>'provider'='maritime'
-        and nullif(trim(summary),'') is not null`;
+      where org_id=${input.orgId} and simulated is true and sharing_revoked_at is null`;
     const eligibleIds=eligibleCases.map(row=>row.id);
     const eligibleLinks=await tx<Pick<LinkRow,"id"|"incident_a"|"incident_b"|"status">[]>`
       select id,incident_a,incident_b,status from links
@@ -149,7 +142,7 @@ export async function createReportVersion(input:{orgId:string;analystId:string;c
     const summary=`Informe preliminar de ${reportCases.length} casos ficticios y ${reportLinks.length} vínculos seleccionados. `+
       `${reportLinks.filter(link=>link.status==="confirmado").length} vínculos confirmados por analista; `+
       `${reportLinks.filter(link=>link.status==="pendiente").length} pendientes de revisión. `+
-      reportCases.map(row=>`${row.title}: ${row.summary}`).join(" ").slice(0,5000);
+      reportCases.map(row=>`${row.title}: ${row.summary?.trim()||"Sin resumen registrado."}`).join(" ").slice(0,5000);
     const seriesId=input.seriesId??newId("rep");
     await tx`select pg_advisory_xact_lock(hashtext(${input.orgId}),hashtext(${seriesId}))`;
     const previous=await tx<{version:number;snapshot:ReportSnapshot}[]>`select version,snapshot from report_versions
@@ -173,9 +166,7 @@ export async function listLatestReportVersions(orgId:string,client?:Sql) {
     where org_id=${orgId} and not exists (
       select 1 from jsonb_array_elements_text(snapshot->'selected_case_ids') as chosen(case_id)
       left join incidents i on i.id=chosen.case_id and i.org_id=${orgId}
-      where i.id is null or i.sharing_revoked_at is not null
-        or i.consent_snapshot->>'report_storage' is distinct from 'true'
-        or i.consent_snapshot->>'report_sharing' is distinct from 'true')
+      where i.id is null or i.simulated is distinct from true or i.sharing_revoked_at is not null)
     order by series_id,version desc`]
     .sort((a,b)=>b.created_at.localeCompare(a.created_at));
 }
@@ -186,9 +177,7 @@ export async function getReportVersion(orgId:string,id:string,client?:Sql) {
     where org_id=${orgId} and id=${id} and not exists (
       select 1 from jsonb_array_elements_text(snapshot->'selected_case_ids') as chosen(case_id)
       left join incidents i on i.id=chosen.case_id and i.org_id=${orgId}
-      where i.id is null or i.sharing_revoked_at is not null
-        or i.consent_snapshot->>'report_storage' is distinct from 'true'
-        or i.consent_snapshot->>'report_sharing' is distinct from 'true')`;
+      where i.id is null or i.simulated is distinct from true or i.sharing_revoked_at is not null)`;
   return row??null;
 }
 
@@ -198,8 +187,6 @@ export async function listReportVersions(orgId:string,seriesId:string,client?:Sq
     where org_id=${orgId} and series_id=${seriesId} and not exists (
       select 1 from jsonb_array_elements_text(snapshot->'selected_case_ids') as chosen(case_id)
       left join incidents i on i.id=chosen.case_id and i.org_id=${orgId}
-      where i.id is null or i.sharing_revoked_at is not null
-        or i.consent_snapshot->>'report_storage' is distinct from 'true'
-        or i.consent_snapshot->>'report_sharing' is distinct from 'true')
+      where i.id is null or i.simulated is distinct from true or i.sharing_revoked_at is not null)
     order by version desc`];
 }
