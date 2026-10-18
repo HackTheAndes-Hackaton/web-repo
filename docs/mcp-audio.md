@@ -15,3 +15,14 @@ La conservación y el uso como referencia son permisos distintos. Los fragmentos
 Implementación inicial: audio del micrófono en WebRTC. La APK de conferencia telefónica recibe transcripciones, no PCM de Entel. Para conservar esa voz falta una fuente de audio del proveedor compatible con el modelo utilizado; no se sustituye con el micrófono del propietario. SMS y corte de llamada no se ejecutan mediante estas herramientas.
 
 Validación: `npm run test:db`, `npm run build`, `npm run lint`. Las pruebas usan una base efímera y audio sintético; no escriben datos de personas en producción.
+
+
+## API HTTP para cargas automáticas
+
+El guardado determinista de la APK puede usar HTTP en lugar de `tools/call`. Comparte `saveAudio`, `listAudio` y `loadAudio` con MCP; no duplica almacenamiento ni cambia permisos.
+
+- `POST /api/v1/audio-fragments`: mismo cuerpo que `guardar_fragmento`; responde `{data: metadatos}`.
+- `GET /api/v1/audio-fragments?session_id=UUID`: lista sin audio.
+- `GET /api/v1/audio-fragments/{id}?session_id=UUID`: WAV con `Cache-Control: no-store`.
+
+Exige la clave de servicio y `X-Tiskz-Org`. El backend de voz los adjunta; la APK solo posee su ticket de sesión. No se admite subir directamente con una clave global incluida en la aplicación. MCP permanece disponible para las herramientas de agentes.

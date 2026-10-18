@@ -238,3 +238,36 @@ test('MCP HTTP compatible con herramientas 2025 entrega WAV reproducible', async
     await assert.rejects(client('listar_fragmentos',{session_id:'invalid'}));
   } finally {await handler.close();}
 });
+
+test('HTTP audio autentica el servicio y comparte permisos, datos e idempotencia con MCP',async()=>{
+  const {postAudio,getAudioList,getAudio}=await import('../src/lib/api/audio-http.ts');
+  const {randomUUID,createHash}=await import('node:crypto');
+  await database(async(_db,sql)=>{
+    await fixture(sql);globalThis.__sql=sql;globalThis.__dbReady=Promise.resolve();
+    try {
+      const key='tkz_synthetic_audio_http';
+      await sql`insert into api_keys(id,name,prefix,key_hash) values ('http-test-key','Prueba HTTP','tkz_synthetic',${createHash('sha256').update(key).digest('hex')})`;
+      const wave=Buffer.alloc(32044);wave.write('RIFF',0);wave.writeUInt32LE(wave.length-8,4);wave.write('WAVEfmt ',8);
+      wave.writeUInt32LE(16,16);wave.writeUInt16LE(1,20);wave.writeUInt16LE(1,22);wave.writeUInt32LE(16000,24);wave.writeUInt32LE(32000,28);
+      wave.writeUInt16LE(2,32);wave.writeUInt16LE(16,34);wave.write('data',36);wave.writeUInt32LE(32000,40);
+      const input={session_id:randomUUID(),request_id:randomUUID(),consentimiento_conservacion:true,audio_base64:wave.toString('base64'),source:'webrtc_microphone',risk_percent:90,simulated:true};
+      const headers={'X-API-Key':key,'X-Tiskz-Org':'org','Content-Type':'application/json'};
+      const upload=(h=headers)=>new Request('https://panel.test/api/v1/audio-fragments',{method:'POST',headers:h,body:JSON.stringify(input)});
+      assert.equal((await postAudio(upload({}))).status,401);
+      assert.equal((await postAudio(upload({'X-API-Key':key}))).status,400);
+      const response=await postAudio(upload());assert.equal(response.status,201);assert.equal(response.headers.get('Cache-Control'),'no-store');
+      const saved=(await response.json()).data;
+      const duplicate=(await (await postAudio(upload())).json()).data;assert.equal(duplicate.id,saved.id);
+      const list=await getAudioList(new Request('https://panel.test/api/v1/audio-fragments?session_id='+input.session_id,{headers}));
+      const rows=(await list.json()).data;assert.equal(rows.length,1);assert.ok(!('audio' in rows[0]));
+      const request=(h=headers)=>new Request('https://panel.test/api/v1/audio-fragments/'+saved.id+'?session_id='+input.session_id,{headers:h});
+      const ctx={params:Promise.resolve({id:saved.id})};
+      const audio=await getAudio(request(),ctx);assert.equal(audio.status,200);assert.equal(audio.headers.get('Content-Type'),'audio/wav');
+      assert.deepEqual(Buffer.from(await audio.arrayBuffer()),wave);
+      assert.equal((await getAudio(request({...headers,'X-Tiskz-Org':'other'}),ctx)).status,404);
+      await sql`update incidents set consent_snapshot='{"voice_storage":false}' where id=${saved.incident_id}`;
+      assert.equal((await getAudio(request(),ctx)).status,404);
+      assert.equal((await postAudio(upload())).status,403);
+    } finally {delete globalThis.__sql;delete globalThis.__dbReady;}
+  });
+});
