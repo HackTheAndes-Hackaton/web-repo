@@ -10,6 +10,7 @@ import { inspectNetworkOrigin } from "@/lib/api/network-origin";
 import { ApiError } from "@/lib/api/http";
 import { assignCases, createSuspect, SuspectError, unassignCase, updateSuspect } from "@/lib/suspects";
 import { reviewVoice, VoiceReviewError } from "@/lib/voices";
+import { clearNumberReport, NumberReportError } from "@/lib/number-reports";
 
 export async function selectDemoUser(formData: FormData) {
   const userId = String(formData.get("userId") ?? "");
@@ -120,6 +121,17 @@ export async function createApiKeyAction(_prev: CreatedKey, formData: FormData):
   const { key } = await createApiKey(name);
   refresh();
   return { key, name };
+}
+
+/** Borra el historial de reportes de un número (la app deja de avisar por él). */
+export async function clearNumberReportAction(number: string) {
+  const session = await analystSession();
+  try {
+    await clearNumberReport(session, number);
+  } catch (error) {
+    if (!(error instanceof NumberReportError)) throw error;
+  }
+  refresh();
 }
 
 export async function revokeApiKeyAction(id: string) {

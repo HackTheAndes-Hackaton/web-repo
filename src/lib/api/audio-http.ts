@@ -3,9 +3,10 @@ import { z } from "zod";
 import { db } from "../db";
 import { requireOrg, saveAudio, listAudio, loadAudio } from "./audio";
 import { ApiError, ok, readJson, withApi } from "./http";
+import { canonicalOrg } from "../orgs";
 
 async function organization(request: Request) {
-  const org = request.headers.get("X-Tiskz-Org");
+  const org = canonicalOrg(request.headers.get("X-Tiskz-Org"));
   if (!org) throw new ApiError(400, "missing_org", "Indica X-Tiskz-Org.");
   await requireOrg(org, await db());
   return org;

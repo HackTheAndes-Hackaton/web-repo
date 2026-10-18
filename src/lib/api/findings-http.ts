@@ -5,10 +5,11 @@ import { ApiError, ok, readJson, withApi } from "./http";
 import { emit } from "../events";
 import { refreshLinksFor } from "../links";
 import { explainTopPendingLinks } from "./link-explanations";
+import { canonicalOrg } from "../orgs";
 
 type Ctx = { params: Promise<{ id: string }> };
 export const postFindings = withApi(async (request, ctx: Ctx, { key }) => {
-  const org = request.headers.get("X-Tiskz-Org");
+  const org = canonicalOrg(request.headers.get("X-Tiskz-Org"));
   if (!org || !/^[A-Za-z0-9_.:-]{1,64}$/.test(org)) throw new ApiError(400, "organization_required", "Indica X-Tiskz-Org.");
   const { id } = await ctx.params;
   const receipt = await commitFindings(org, id, await readJson(request), key.id);

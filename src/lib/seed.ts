@@ -225,7 +225,6 @@ const INCIDENTS: SeedIncident[] = [
 export async function seedDemoData(sql: Db) {
   await sql`insert into organizations ${sql([
     { id: "org_uav", name: "Unidad de Atención a Víctimas (demo)" },
-    { id: "org_vecinal", name: "Red Vecinal Segura (demo)" },
   ])}`;
   await sql`insert into users ${sql([
     { id: "usr_ana", name: "Ana (usuaria demo)", role: "usuario", org_id: null },
