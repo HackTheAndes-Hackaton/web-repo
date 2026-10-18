@@ -1,13 +1,11 @@
 import "server-only";
-import { db, newId, nowIso } from "./db";
+import { db } from "./db";
 import type {
   ActionLog,
   Entity,
   Incident,
   IncidentLink,
-  Note,
   RiskLevel,
-  Segment,
   Session,
   Signal,
   SignalType,
@@ -55,37 +53,38 @@ export interface LinkView extends IncidentLink {
   b_started: string;
   a_risk: RiskLevel;
   b_risk: RiskLevel;
+  a_scam_type: string | null;
+  b_scam_type: string | null;
+  a_impersonating: string | null;
+  b_impersonating: string | null;
+  a_caller: string | null;
+  b_caller: string | null;
 }
 
 export async function listLinks(orgId: string) {
   const sql = await db();
   const rows = await sql<LinkView[]>`
     select l.*, a.title as a_title, b.title as b_title, a.started_at as a_started,
-           b.started_at as b_started, a.risk_level as a_risk, b.risk_level as b_risk
+           b.started_at as b_started, a.risk_level as a_risk, b.risk_level as b_risk,
+           a.scam_type as a_scam_type, b.scam_type as b_scam_type,
+           a.impersonating as a_impersonating, b.impersonating as b_impersonating,
+           coalesce(a.caller_e164, a.caller_number_raw) as a_caller, coalesce(b.caller_e164, b.caller_number_raw) as b_caller
     from links l join incidents a on a.id = l.incident_a join incidents b on b.id = l.incident_b
-    where a.org_id = ${orgId} and b.org_id = ${orgId}
-    order by case l.status when 'pendiente' then 0 when 'confirmado' then 1 else 2 end, l.score desc`;
+    where a.org_id = ${orgId} and b.org_id = ${orgId} and l.status <> 'descartado'
+    order by l.score desc`;
   return [...rows];
-}
-
-export async function getLink(id: string) {
-  const sql = await db();
-  const [row] = await sql<IncidentLink[]>`select * from links where id = ${id}`;
-  return row as IncidentLink | undefined;
 }
 
 export async function getIncidentDetail(id: string, session: Session) {
   const sql = await db();
   const incident = await getIncident(id);
   if (!incident || !canView(session, incident)) return null;
-  const [segments, signals, entities, actions, notes, [{ n: voiceSamples }], [owner], sharedOrg, links] =
+  const [signals, entities, actions, [{ n: voiceSamples }], [owner], sharedOrg, links] =
     await Promise.all([
-      sql<Segment[]>`select * from segments where incident_id = ${id} order by idx`,
       sql<Signal[]>`select * from signals where incident_id = ${id} order by created_at`,
       sql<Entity[]>`select * from entities where incident_id = ${id} order by kind, value`,
       sql<ActionLog[]>`select * from actions where incident_id = ${id}
         or link_id in (select id from links where incident_a=${id} or incident_b=${id}) order by created_at`,
-      sql<Note[]>`select * from notes where incident_id = ${id} order by created_at`,
       sql<{ n: number }[]>`select count(*)::int as n from voice_samples where incident_id = ${id}`,
       incident.user_id
         ? sql<{ name: string }[]>`select name from users where id = ${incident.user_id}`
@@ -97,11 +96,9 @@ export async function getIncidentDetail(id: string, session: Session) {
     ]);
   return {
     incident,
-    segments: [...segments],
     signals: [...signals],
     entities: [...entities],
     actions: [...actions],
-    notes: [...notes],
     voiceSamples,
     owner,
     sharedOrg,
@@ -164,18 +161,13 @@ export async function dashboardData(orgId: string) {
         prev: prevWeek.filter((i) => i.risk_level === "alto").length,
       },
     },
-    attention: {
-      newHigh: incidents.filter((i) => i.analyst_status === "nuevo" && i.risk_level === "alto").length,
-      newCases: incidents.filter((i) => i.analyst_status === "nuevo").length,
-      inReview: incidents.filter((i) => i.analyst_status === "en_revision").length,
-      closed: incidents.filter((i) => i.analyst_status === "cerrado").length,
-    },
+    scamTypes: countBy(incidents.map((i) => i.scam_type)),
+    impersonated: countBy(incidents.map((i) => i.impersonating)),
     kpis: {
       total: incidents.length,
       high: incidents.filter((i) => i.risk_level === "alto").length,
-      inReview: incidents.filter((i) => i.analyst_status !== "cerrado").length,
-      pendingLinks: links.filter((l) => l.status === "pendiente").length,
-      confirmedLinks: links.filter((l) => l.status === "confirmado").length,
+      scams: incidents.filter((i) => i.verdict === "scam").length,
+      links: links.length,
     },
     byDay: [...byDay.entries()].map(([day, counts]) => ({ day, ...counts })),
     signalCounts: [...signalCounts],
@@ -183,18 +175,24 @@ export async function dashboardData(orgId: string) {
   };
 }
 
+/** Valores no vacíos agrupados y ordenados de mayor a menor. */
+function countBy(values: (string | null)[]) {
+  const counts = new Map<string, number>();
+  for (const v of values) if (v) counts.set(v, (counts.get(v) ?? 0) + 1);
+  return [...counts.entries()].map(([value, n]) => ({ value, n })).sort((a, b) => b.n - a.n);
+}
+
 /** Contadores para la barra lateral del analista. */
 export async function navCounts(orgId: string) {
   const sql = await db();
-  const [[{ open }], [{ pending }]] = await Promise.all([
-    sql<{ open: number }[]>`
-      select count(*)::int as open from incidents where org_id = ${orgId} and analyst_status != 'cerrado'`,
-    sql<{ pending: number }[]>`
-      select count(*)::int as pending from links l
+  const [[{ cases }], [{ links }]] = await Promise.all([
+    sql<{ cases: number }[]>`select count(*)::int as cases from incidents where org_id = ${orgId}`,
+    sql<{ links: number }[]>`
+      select count(*)::int as links from links l
       join incidents a on a.id = l.incident_a join incidents b on b.id = l.incident_b
-      where l.status = 'pendiente' and a.org_id = ${orgId} and b.org_id = ${orgId}`,
+      where l.status <> 'descartado' and a.org_id = ${orgId} and b.org_id = ${orgId}`,
   ]);
-  return { open, pendingLinks: pending };
+  return { cases, links };
 }
 
 /** Código corto y legible para citar un caso. */
@@ -202,9 +200,3 @@ export function caseCode(id: string) {
   return `#${id.replace(/^inc_/, "").slice(0, 5).toUpperCase()}`;
 }
 
-export async function addNote(incidentId: string, session: Session, kind: Note["kind"], text: string) {
-  const sql = await db();
-  await sql`insert into notes (id, incident_id, author_id, author_name, author_role, kind, text, created_at)
-            values (${newId("not")}, ${incidentId}, ${session.userId}, ${session.name}, ${session.role},
-                    ${kind}, ${text}, ${nowIso()})`;
-}

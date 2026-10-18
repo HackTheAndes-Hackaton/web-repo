@@ -1,11 +1,10 @@
-import type { LinkReason, LinkStatus } from "@/lib/types";
-import { Tag } from "./ui";
+import type { LinkReason } from "@/lib/types";
 
 const REASON_ICON: Record<LinkReason["kind"], string> = { voz: "◉", dato_compartido: "#", contenido: "≈" };
 const REASON_LABEL: Record<LinkReason["kind"], string> = {
   voz: "Voz",
   dato_compartido: "Dato repetido",
-  contenido: "Contenido",
+  contenido: "Patrón de señales",
 };
 
 export function LinkReasons({ reasons }: { reasons: LinkReason[] }) {
@@ -23,10 +22,4 @@ export function LinkReasons({ reasons }: { reasons: LinkReason[] }) {
       ))}
     </ul>
   );
-}
-
-export function LinkStatusTag({ status }: { status: LinkStatus }) {
-  if (status === "confirmado") return <Tag tone="accent">✓ Confirmado</Tag>;
-  if (status === "descartado") return <Tag>✕ Descartado</Tag>;
-  return <Tag tone="warning">◌ Pendiente</Tag>;
 }

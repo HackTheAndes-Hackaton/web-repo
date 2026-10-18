@@ -15,7 +15,7 @@ function RiskNode({ x, y, level, size = 8 }: { x: number; y: number; level: Risk
   return <circle cx={x} cy={y} r={size} {...common} />;
 }
 
-/** Red de casos compartidos: cada línea es un vínculo propuesto o confirmado. */
+/** Red de casos: cada línea es un vínculo detectado por la IA; más gruesa = relación más fuerte. */
 export function LinkGraph({
   incidents,
   links,
@@ -48,7 +48,7 @@ export function LinkGraph({
           const a = pos.get(l.incident_a);
           const b = pos.get(l.incident_b);
           if (!a || !b) return null;
-          const confirmed = l.status === "confirmado";
+          const strong = l.score >= 0.7;
           return (
             <line
               key={l.id}
@@ -56,12 +56,11 @@ export function LinkGraph({
               y1={a.y}
               x2={b.x}
               y2={b.y}
-              stroke={confirmed ? "var(--accent)" : "var(--muted)"}
-              strokeWidth={confirmed ? 3 : 2}
-              strokeDasharray={confirmed ? undefined : "6 5"}
+              stroke={strong ? "var(--accent)" : "var(--brand-3)"}
+              strokeWidth={1.5 + l.score * 3}
               strokeLinecap="round"
             >
-              <title>{`${confirmed ? "Confirmado" : "Pendiente"} · puntaje ${pct(l.score)}`}</title>
+              <title>{`Coincidencia ${pct(l.score)}`}</title>
             </line>
           );
         })}
@@ -92,15 +91,15 @@ export function LinkGraph({
       <figcaption className="mt-2 flex flex-wrap gap-4 text-xs text-fg-2">
         <span className="flex items-center gap-1.5">
           <svg width="22" height="6" aria-hidden>
-            <line x1="1" y1="3" x2="21" y2="3" stroke="var(--accent)" strokeWidth="3" strokeLinecap="round" />
+            <line x1="1" y1="3" x2="21" y2="3" stroke="var(--accent)" strokeWidth="4" strokeLinecap="round" />
           </svg>
-          Vínculo confirmado
+          Relación fuerte (70 % o más)
         </span>
         <span className="flex items-center gap-1.5">
           <svg width="22" height="6" aria-hidden>
-            <line x1="1" y1="3" x2="21" y2="3" stroke="var(--muted)" strokeWidth="2" strokeDasharray="6 5" />
+            <line x1="1" y1="3" x2="21" y2="3" stroke="var(--brand-3)" strokeWidth="2.5" strokeLinecap="round" />
           </svg>
-          Pendiente de revisión
+          Relación más débil
         </span>
         {(["bajo", "medio", "alto"] as const).map((lvl) => (
           <span key={lvl} className="flex items-center gap-1.5">

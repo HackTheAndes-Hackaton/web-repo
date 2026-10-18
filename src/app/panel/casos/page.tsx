@@ -1,10 +1,10 @@
 import Link from "next/link";
-import { CircleCheck, CircleDot, Inbox, Network, Search } from "lucide-react";
-import { Empty, PageHeader, RiskBadge, SignalChip } from "@/components/ui";
+import { Network, Search } from "lucide-react";
+import { CallerNumber, Empty, PageHeader, RiskBadge, ScamTypeChip } from "@/components/ui";
 import { fmtDateTime } from "@/lib/format";
 import { requireAnalyst } from "@/lib/panel";
 import { caseCode, listLinks, listSharedIncidents } from "@/lib/repo";
-import { CHANNEL_LABELS, type AnalystStatus, type SignalType } from "@/lib/types";
+import { scamTypeLabel } from "@/lib/types";
 import { normalizeText } from "@/lib/heuristics";
 
 const RISK_FILTERS = [
@@ -13,19 +13,14 @@ const RISK_FILTERS = [
   { value: "medio", label: "Medio" },
   { value: "bajo", label: "Bajo" },
 ];
-const STATUS_FILTERS = [
+const VERDICT_FILTERS = [
   { value: "", label: "Todos" },
-  { value: "nuevo", label: "Nuevos" },
-  { value: "en_revision", label: "En revisión" },
-  { value: "cerrado", label: "Cerrados" },
+  { value: "scam", label: "Estafa" },
+  { value: "suspicious", label: "Sospechosa" },
+  { value: "safe", label: "Segura" },
 ];
-const STATUS: Record<AnalystStatus, { label: string; Icon: typeof Inbox; cls: string }> = {
-  nuevo: { label: "Nuevo", Icon: Inbox, cls: "text-accent" },
-  en_revision: { label: "En revisión", Icon: CircleDot, cls: "text-warning-ink" },
-  cerrado: { label: "Cerrado", Icon: CircleCheck, cls: "text-good-ink" },
-};
 
-type Params = { riesgo: string; estado: string; q: string };
+type Params = { riesgo: string; veredicto: string; q: string };
 
 function filterHref(current: Params, k: keyof Params, v: string) {
   const p = new URLSearchParams(Object.entries(current).filter(([, val]) => val));
@@ -71,14 +66,13 @@ export default async function Cases({ searchParams }: PageProps<"/panel/casos">)
   const sp = await searchParams;
   const params: Params = {
     riesgo: typeof sp.riesgo === "string" ? sp.riesgo : "",
-    estado: typeof sp.estado === "string" ? sp.estado : "",
+    veredicto: typeof sp.veredicto === "string" ? sp.veredicto : "",
     q: typeof sp.q === "string" ? sp.q.trim() : "",
   };
 
   const linkCount = new Map<string, number>();
   const [links, all] = await Promise.all([listLinks(orgId), listSharedIncidents(orgId)]);
   for (const l of links) {
-    if (l.status === "descartado") continue;
     linkCount.set(l.incident_a, (linkCount.get(l.incident_a) ?? 0) + 1);
     linkCount.set(l.incident_b, (linkCount.get(l.incident_b) ?? 0) + 1);
   }
@@ -86,10 +80,15 @@ export default async function Cases({ searchParams }: PageProps<"/panel/casos">)
   const incidents = all.filter(
     (i) =>
       (!params.riesgo || i.risk_level === params.riesgo) &&
-      (!params.estado || i.analyst_status === params.estado) &&
-      (!needle || normalizeText(`${i.title} ${i.user_name} ${caseCode(i.id)}`).includes(needle)),
+      (!params.veredicto || i.verdict === params.veredicto) &&
+      (!needle ||
+        normalizeText(
+          `${i.title} ${i.user_name ?? ""} ${caseCode(i.id)} ${scamTypeLabel(i.scam_type) ?? ""} ${i.impersonating ?? ""} ${i.caller_e164 ?? ""} ${i.caller_number_raw ?? ""}`,
+        ).includes(needle) ||
+        (needle.replace(/\D/g, "").length >= 4 &&
+          `${i.caller_e164 ?? ""}${i.caller_number_raw ?? ""}`.replace(/\D/g, "").includes(needle.replace(/\D/g, "")))),
   );
-  const filtered = Boolean(params.riesgo || params.estado || params.q);
+  const filtered = Boolean(params.riesgo || params.veredicto || params.q);
 
   return (
     <>
@@ -99,24 +98,24 @@ export default async function Cases({ searchParams }: PageProps<"/panel/casos">)
           { href: "/panel/casos", label: "Casos" },
         ]}
         title="Casos compartidos"
-        description="Cada caso llega solo cuando su titular autoriza compartirlo. Usa los filtros para priorizar la revisión."
+        description="Cada caso llega solo cuando su titular autoriza compartirlo. La IA clasifica el tipo de estafa y registra el número que llamó."
       />
 
       <div className="mb-4 flex flex-wrap items-center gap-2">
         <form action="/panel/casos" className="relative min-w-56 flex-1 sm:max-w-xs">
           {params.riesgo && <input type="hidden" name="riesgo" value={params.riesgo} />}
-          {params.estado && <input type="hidden" name="estado" value={params.estado} />}
+          {params.veredicto && <input type="hidden" name="veredicto" value={params.veredicto} />}
           <Search size={16} className="pointer-events-none absolute top-1/2 left-3.5 -translate-y-1/2 text-accent" aria-hidden />
           <input
             name="q"
             defaultValue={params.q}
-            placeholder="Buscar por título, persona o código"
+            placeholder="Buscar por número, tipo de estafa o título"
             aria-label="Buscar casos"
             className="w-full rounded-full bg-surface py-2 pr-4 pl-10 text-sm shadow-soft ring-1 ring-line outline-none focus:ring-2 focus:ring-accent"
           />
         </form>
         <FilterGroup label="Riesgo" k="riesgo" all={params} options={RISK_FILTERS} />
-        <FilterGroup label="Estado" k="estado" all={params} options={STATUS_FILTERS} />
+        <FilterGroup label="Veredicto" k="veredicto" all={params} options={VERDICT_FILTERS} />
         {filtered && (
           <Link href="/panel/casos" className="px-2 text-xs font-medium text-accent-ink hover:underline">
             Limpiar
@@ -132,45 +131,37 @@ export default async function Cases({ searchParams }: PageProps<"/panel/casos">)
           <table className="w-full min-w-[960px] text-left text-sm">
             <thead className="bg-surface-2/70 text-[11px] uppercase tracking-wider text-muted">
               <tr>
-                <th className="px-4 py-2.5 font-medium">Caso</th>
-                <th className="px-4 py-2.5 font-medium">Reportado por</th>
-                <th className="px-4 py-2.5 font-medium">Señales</th>
-                <th className="px-4 py-2.5 font-medium">Riesgo</th>
-                <th className="px-4 py-2.5 text-right font-medium">Vínculos</th>
-                <th className="px-4 py-2.5 font-medium">Estado</th>
+                <th className="px-5 py-3 font-medium">Caso</th>
+                <th className="px-5 py-3 font-medium">Tipo de estafa</th>
+                <th className="px-5 py-3 font-medium">Número que llamó</th>
+                <th className="px-5 py-3 font-medium">Riesgo</th>
+                <th className="px-5 py-3 text-right font-medium">Vínculos</th>
               </tr>
             </thead>
             <tbody>
               {incidents.map((i) => {
-                const st = STATUS[i.analyst_status];
                 const links = linkCount.get(i.id) ?? 0;
                 return (
                   <tr key={i.id} className="border-b border-line last:border-0 hover:bg-accent-wash/50">
-                    <td className="min-w-64 px-4 py-3">
+                    <td className="min-w-64 px-5 py-4">
                       <Link href={`/panel/casos/${i.id}`} className="font-semibold hover:text-accent">
                         {i.title}
                       </Link>
                       <div className="mt-0.5 text-xs text-muted">
-                        <span className="tabular">{caseCode(i.id)}</span> · {fmtDateTime(i.started_at)} ·{" "}
-                        {CHANNEL_LABELS[i.channel]}
+                        <span className="tabular">{caseCode(i.id)}</span> · {fmtDateTime(i.started_at)}
                       </div>
                     </td>
-                    <td className="whitespace-nowrap px-4 py-3 text-fg-2">{i.user_name}</td>
-                    <td className="px-4 py-3">
-                      <div className="flex max-w-60 flex-wrap gap-1">
-                        {i.signal_types
-                          ?.split(",")
-                          .slice(0, 2)
-                          .map((t) => <SignalChip key={t} type={t as SignalType} />)}
-                        {(i.signal_types?.split(",").length ?? 0) > 2 && (
-                          <span className="px-1 text-xs text-muted">+{i.signal_types!.split(",").length - 2}</span>
-                        )}
-                      </div>
+                    <td className="px-5 py-4">
+                      {i.scam_type ? <ScamTypeChip type={i.scam_type} /> : <span className="text-xs text-muted">Sin clasificar</span>}
+                      {i.impersonating && <div className="mt-1 text-xs text-fg-2">Se hace pasar por {i.impersonating}</div>}
                     </td>
-                    <td className="px-4 py-3">
+                    <td className="px-5 py-4">
+                      <CallerNumber incident={i} />
+                    </td>
+                    <td className="px-5 py-4">
                       <RiskBadge level={i.risk_level} score={i.risk_score} />
                     </td>
-                    <td className="tabular px-4 py-3 text-right">
+                    <td className="tabular px-5 py-4 text-right">
                       {links ? (
                         <span className="inline-flex items-center gap-1 text-fg-2">
                           <Network size={13} aria-hidden />
@@ -179,12 +170,6 @@ export default async function Cases({ searchParams }: PageProps<"/panel/casos">)
                       ) : (
                         <span className="text-muted">—</span>
                       )}
-                    </td>
-                    <td className="px-4 py-3">
-                      <span className="inline-flex items-center gap-1.5 whitespace-nowrap text-fg-2">
-                        <st.Icon size={14} className={st.cls} aria-hidden />
-                        {st.label}
-                      </span>
                     </td>
                   </tr>
                 );

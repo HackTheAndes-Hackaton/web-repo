@@ -34,13 +34,13 @@ export default function Home() {
               Panel de análisis de incidentes
             </h1>
             <p className="mt-3 max-w-md text-sm text-white/80">
-              Reportes, transcripciones, gráficas y posibles vínculos entre casos de estafa y extorsión.
+              Reportes, señales de riesgo, gráficas y posibles vínculos entre casos de estafa y extorsión.
             </p>
           </div>
 
           <ul className="grid gap-4 sm:grid-cols-3 lg:grid-cols-1 xl:grid-cols-3">
             <Feature icon={<Activity size={18} aria-hidden />} title="Riesgo en vivo" body="Señales observadas en cada llamada." />
-            <Feature icon={<Network size={18} aria-hidden />} title="Vínculos entre casos" body="Datos y guiones que se repiten." />
+            <Feature icon={<Network size={18} aria-hidden />} title="Vínculos entre casos" body="Datos y patrones que se repiten." />
             <Feature icon={<Fingerprint size={18} aria-hidden />} title="Huella de voz" body="Similitud como pista, no identidad." />
           </ul>
         </div>

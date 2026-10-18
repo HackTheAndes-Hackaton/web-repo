@@ -46,6 +46,8 @@ Los valores de `verdict` son el resultado del análisis. El backend debe conserv
 
 `users.settings` guarda preferencias sin una tabla adicional. `actions` puede recibir `actor_id`, `actor_kind` (`user`/`analyst`/`service`/`system`), `result` (`requested`/`applied`/`failed`), `request_id`, `link_id` y `payload` JSON. Una solicitud de colgar o bloquear no se registra como aplicada hasta recibir su resultado.
 
+> **Nota posterior:** la transcripción se retiró del panel y de la API (`/segments` ya no existe, y las señales y datos ya no aceptan `segment_id` ni `evidence`). La tabla `segments` sigue en la base sin usarse; los vínculos ya no comparan guiones, solo tipos de señal.
+
 La transcripción añade `external_segment_id`, `flagged`, `is_final`, `end_offset`, `source` y `updated_at`. Para una corrección parcial/final de la misma frase utiliza el mismo registro y `PATCH`; `external_segment_id` es único dentro de la conversación. Los segmentos del agente, usuario y llamante llevan `speaker=agent/user/caller`; el contenido para comparar guiones usa solamente frases finales del llamante.
 
 Las señales y entidades incorporan `analysis_meta` para modelo y versión.

@@ -1,28 +1,16 @@
 import Link from "next/link";
-import {
-  ArrowDownRight,
-  ArrowRight,
-  ArrowUpRight,
-  CircleCheck,
-  FolderOpen,
-  Inbox,
-  Minus,
-  Network,
-  ShieldAlert,
-  TriangleAlert,
-} from "lucide-react";
+import { ArrowDownRight, ArrowUpRight, FolderOpen, Minus, Network, ShieldAlert, ShieldX, UserRound } from "lucide-react";
 import type { ReactNode } from "react";
 import { IncidentsByDayChart, SignalBarChart } from "@/components/charts";
 import { LinkGraph } from "@/components/LinkGraph";
 import { LinkReasons } from "@/components/links-ui";
-import { Card, Empty, IconBubble, PulsingShield, RiskBadge, RiskIcon, SignalChip } from "@/components/ui";
+import { CallerNumber, Card, Empty, IconBubble, PulsingShield, RiskBadge, RiskIcon, ScamTypeChip } from "@/components/ui";
 import { fmtDateTime, fmtDay, pct } from "@/lib/format";
 import { requireAnalyst } from "@/lib/panel";
 import { caseCode, dashboardData } from "@/lib/repo";
-import { ENTITY_LABELS, SIGNAL_LABELS, type AnalystStatus, type EntityKind, type SignalType } from "@/lib/types";
+import { ENTITY_LABELS, SIGNAL_LABELS, scamTypeLabel, type EntityKind, type SignalType } from "@/lib/types";
 
 const RISK_NAME = { alto: "Alto", medio: "Medio", bajo: "Bajo" };
-const STATUS_LABEL: Record<AnalystStatus, string> = { nuevo: "Nuevo", en_revision: "En revisión", cerrado: "Cerrado" };
 
 function Delta({ now, prev }: { now: number; prev: number }) {
   const diff = now - prev;
@@ -62,16 +50,33 @@ function Kpi({
   );
 }
 
-function AttentionRow({ href, icon, label, count }: { href: string; icon: ReactNode; label: string; count: number }) {
+/** Lista con barra proporcional, como la distribución por riesgo. */
+function CountList({
+  items,
+  total,
+  empty,
+  label,
+}: {
+  items: { value: string; n: number }[];
+  total: number;
+  empty: string;
+  label?: (v: string) => string;
+}) {
+  if (!items.length) return <Empty>{empty}</Empty>;
   return (
-    <li>
-      <Link href={href} className="flex items-center gap-3 rounded-2xl px-2.5 py-2.5 text-sm hover:bg-surface-2">
-        {icon}
-        <span className="flex-1 text-fg-2">{label}</span>
-        <span className="tabular font-medium">{count}</span>
-        <ArrowRight size={14} className="text-muted" aria-hidden />
-      </Link>
-    </li>
+    <ul className="space-y-3">
+      {items.slice(0, 6).map((it) => (
+        <li key={it.value}>
+          <div className="flex items-baseline justify-between gap-3 text-sm">
+            <span className="min-w-0 truncate text-fg">{label ? label(it.value) : it.value}</span>
+            <span className="tabular shrink-0 font-semibold">{it.n}</span>
+          </div>
+          <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-surface-2">
+            <div className="h-full rounded-full bg-brand" style={{ width: `${(it.n / total) * 100}%` }} />
+          </div>
+        </li>
+      ))}
+    </ul>
   );
 }
 
@@ -80,10 +85,9 @@ export default async function Dashboard() {
   const data = await dashboardData(orgId);
   const byDay = data.byDay.map((d) => ({ ...d, label: fmtDay(d.day) }));
   const signals = data.signalCounts.map((s) => ({ label: SIGNAL_LABELS[s.type as SignalType] ?? s.type, n: s.n }));
-  const pending = data.links.filter((l) => l.status === "pendiente").slice(0, 3);
+  const strongest = data.links.slice(0, 3);
   const titleOf = new Map(data.incidents.map((i) => [i.id, i.title]));
   const total = data.kpis.total || 1;
-  const reviewedPct = data.attention.closed / total;
 
   return (
     <>
@@ -94,8 +98,8 @@ export default async function Dashboard() {
             <div className="text-xs font-semibold uppercase tracking-widest text-white/70">Análisis</div>
             <h1 className="mt-1 text-4xl font-bold tracking-tight">Resumen</h1>
             <p className="mt-2 text-sm text-white/85">
-              Incidentes que sus titulares decidieron compartir con esta organización. Los vínculos son hipótesis para
-              revisar, no atribuciones de identidad.
+              Incidentes que sus titulares decidieron compartir con esta organización, analizados por la IA. Los vínculos
+              son hipótesis de la IA, no atribuciones de identidad.
             </p>
             <div className="no-print mt-5 flex flex-wrap items-center gap-2">
               <span className="bg-glass inline-flex items-center rounded-full px-3.5 py-1.5 text-xs font-semibold ring-1 ring-white/25">
@@ -106,7 +110,7 @@ export default async function Dashboard() {
                 className="inline-flex items-center gap-2 rounded-full bg-white px-4 py-1.5 text-sm font-semibold text-accent-ink shadow-soft hover:bg-accent-wash"
               >
                 <Network size={15} aria-hidden />
-                Revisar vínculos
+                Ver vínculos
               </Link>
             </div>
           </div>
@@ -132,18 +136,18 @@ export default async function Dashboard() {
           footer={<Delta now={data.period.high.now} prev={data.period.high.prev} />}
         />
         <Kpi
-          icon={<Network size={18} aria-hidden />}
+          icon={<ShieldX size={18} aria-hidden />}
           tone="warning"
-          label="Vínculos pendientes"
-          value={data.kpis.pendingLinks}
-          footer={<span className="text-xs text-muted">Esperan revisión humana</span>}
+          label="Estafas detectadas"
+          value={data.kpis.scams}
+          footer={<span className="text-xs text-muted">Veredicto de la IA</span>}
         />
         <Kpi
-          icon={<CircleCheck size={18} aria-hidden />}
+          icon={<Network size={18} aria-hidden />}
           tone="good"
-          label="Vínculos confirmados"
-          value={data.kpis.confirmedLinks}
-          footer={<span className="text-xs text-muted">Posibles campañas documentadas</span>}
+          label="Vínculos detectados"
+          value={data.kpis.links}
+          footer={<span className="text-xs text-muted">Posibles campañas</span>}
         />
       </section>
 
@@ -177,49 +181,22 @@ export default async function Dashboard() {
           </details>
         </Card>
 
-        <Card title="Requiere atención">
-          <div className="flex items-baseline justify-between">
-            <span className="text-sm text-fg-2">Casos cerrados</span>
-            <span className="tabular text-sm font-medium">
-              {data.attention.closed} de {data.kpis.total}
-            </span>
-          </div>
-          <div
-            className="mt-2 h-3 overflow-hidden rounded-full bg-surface-2"
-            role="progressbar"
-            aria-valuenow={Math.round(reviewedPct * 100)}
-            aria-valuemin={0}
-            aria-valuemax={100}
-            aria-label="Casos cerrados"
-          >
-            <div className="bg-brand h-full rounded-full" style={{ width: `${reviewedPct * 100}%` }} />
-          </div>
-          <ul className="mt-4 space-y-0.5">
-            <AttentionRow
-              href="/panel/casos?riesgo=alto&estado=nuevo"
-              icon={<ShieldAlert size={16} className="text-critical" aria-hidden />}
-              label="Riesgo alto sin revisar"
-              count={data.attention.newHigh}
-            />
-            <AttentionRow
-              href="/panel/vinculos"
-              icon={<Network size={16} className="text-warning-ink" aria-hidden />}
-              label="Vínculos por confirmar"
-              count={data.kpis.pendingLinks}
-            />
-            <AttentionRow
-              href="/panel/casos?estado=nuevo"
-              icon={<Inbox size={16} className="text-accent" aria-hidden />}
-              label="Casos nuevos"
-              count={data.attention.newCases}
-            />
-            <AttentionRow
-              href="/panel/casos?estado=en_revision"
-              icon={<TriangleAlert size={16} className="text-muted" aria-hidden />}
-              label="En revisión"
-              count={data.attention.inReview}
-            />
-          </ul>
+        <Card title="Tipos de estafa">
+          <CountList
+            items={data.scamTypes}
+            total={total}
+            empty="La IA todavía no clasificó tipos de estafa."
+            label={(v) => scamTypeLabel(v) ?? v}
+          />
+          {data.impersonated.length > 0 && (
+            <>
+              <h3 className="mt-6 mb-3 flex items-center gap-1.5 text-xs font-semibold tracking-widest text-muted">
+                <UserRound size={13} aria-hidden />
+                SE HACEN PASAR POR
+              </h3>
+              <CountList items={data.impersonated} total={total} empty="" />
+            </>
+          )}
         </Card>
       </div>
 
@@ -261,33 +238,33 @@ export default async function Dashboard() {
           className="lg:col-span-2"
           action={
             <Link href="/panel/vinculos" className="text-xs font-medium text-accent-ink hover:underline">
-              Abrir revisión →
+              Ver todos →
             </Link>
           }
         >
           {data.incidents.length ? <LinkGraph incidents={data.incidents} links={data.links} /> : <Empty>No hay casos.</Empty>}
         </Card>
         <div className="space-y-6">
-          <Card title="Pendientes de revisión">
-            {pending.length ? (
+          <Card title="Vínculos más fuertes">
+            {strongest.length ? (
               <ul className="space-y-3">
-                {pending.map((l) => (
+                {strongest.map((l) => (
                   <li key={l.id}>
                     <Link href="/panel/vinculos" className="block rounded-2xl bg-surface-2/70 p-3.5 hover:bg-accent-wash">
                       <div className="flex items-center justify-between gap-2">
                         <span className="text-xs text-muted">Puntaje</span>
                         <span className="tabular rounded-full bg-warning-wash px-2 text-xs font-bold text-warning-ink">{pct(l.score)}</span>
                       </div>
-                      <div className="mt-1 text-sm font-medium leading-snug">
+                      <div className="mt-1 text-sm font-semibold leading-snug">
                         {titleOf.get(l.incident_a)} <span className="text-muted">↔</span> {titleOf.get(l.incident_b)}
                       </div>
-                      <LinkReasons reasons={l.reasons} />
+                      <LinkReasons reasons={l.reasons.filter((r) => !/guion/i.test(r.detail))} />
                     </Link>
                   </li>
                 ))}
               </ul>
             ) : (
-              <Empty>No hay vínculos pendientes.</Empty>
+              <Empty>La IA todavía no detectó vínculos.</Empty>
             )}
           </Card>
           <Card title="Datos repetidos entre casos">
@@ -324,10 +301,10 @@ export default async function Dashboard() {
           <table className="w-full min-w-[680px] text-left text-sm">
             <thead className="bg-surface-2/70 text-[11px] uppercase tracking-wider text-muted">
               <tr>
-                <th className="px-4 py-2 font-medium sm:px-5">Caso</th>
-                <th className="px-4 py-2 font-medium">Señales</th>
-                <th className="px-4 py-2 font-medium">Riesgo</th>
-                <th className="px-4 py-2 font-medium">Estado</th>
+                <th className="px-4 py-2.5 font-medium sm:px-5">Caso</th>
+                <th className="px-4 py-2.5 font-medium">Tipo de estafa</th>
+                <th className="px-4 py-2.5 font-medium">Número</th>
+                <th className="px-4 py-2.5 font-medium">Riesgo</th>
               </tr>
             </thead>
             <tbody>
@@ -338,22 +315,17 @@ export default async function Dashboard() {
                       <span className="tabular mr-2 text-xs text-muted">{caseCode(i.id)}</span>
                       {i.title}
                     </Link>
-                    <div className="text-xs text-muted">
-                      {fmtDateTime(i.started_at)} · {i.user_name}
-                    </div>
+                    <div className="text-xs text-muted">{fmtDateTime(i.started_at)}</div>
                   </td>
                   <td className="px-4 py-3">
-                    <div className="flex max-w-xs flex-wrap gap-1">
-                      {i.signal_types
-                        ?.split(",")
-                        .slice(0, 2)
-                        .map((t) => <SignalChip key={t} type={t as SignalType} />)}
-                    </div>
+                    {i.scam_type ? <ScamTypeChip type={i.scam_type} /> : <span className="text-xs text-muted">Sin clasificar</span>}
+                  </td>
+                  <td className="px-4 py-3">
+                    <CallerNumber incident={i} />
                   </td>
                   <td className="px-4 py-3">
                     <RiskBadge level={i.risk_level} score={i.risk_score} />
                   </td>
-                  <td className="px-4 py-3 text-fg-2">{STATUS_LABEL[i.analyst_status]}</td>
                 </tr>
               ))}
             </tbody>

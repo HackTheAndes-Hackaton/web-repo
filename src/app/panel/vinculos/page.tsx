@@ -1,100 +1,145 @@
 import Link from "next/link";
-import { reviewLink } from "@/app/actions";
+import { CalendarDays, Hash, Link2, Mic, Sparkles, UserRound } from "lucide-react";
+import type { ReactNode } from "react";
 import { LinkGraph } from "@/components/LinkGraph";
-import { LinkReasons, LinkStatusTag } from "@/components/links-ui";
-import { buttonCls, Card, Empty, PageHeader, RiskBadge } from "@/components/ui";
+import { CallerNumber, Card, Empty, IconBubble, PageHeader, RiskBadge, ScamTypeChip } from "@/components/ui";
 import { fmtDateTime, pct } from "@/lib/format";
 import { requireAnalyst } from "@/lib/panel";
-import { listLinks, listSharedIncidents, type LinkView } from "@/lib/repo";
+import { caseCode, listLinks, listSharedIncidents, type LinkView } from "@/lib/repo";
+import type { LinkReason, RiskLevel } from "@/lib/types";
 
-function Similarity({ label, value }: { label: string; value: number | null }) {
+/** Las razones antiguas basadas en el guion de la transcripción ya no se muestran. */
+const visibleReasons = (reasons: LinkReason[]) => reasons.filter((r) => !/guion/i.test(r.detail));
+
+function strength(score: number) {
+  if (score >= 0.7) return { label: "Relación fuerte", cls: "bg-critical-wash text-critical-ink" };
+  if (score >= 0.45) return { label: "Relación probable", cls: "bg-warning-wash text-warning-ink" };
+  return { label: "Relación posible", cls: "bg-accent-wash text-accent-ink" };
+}
+
+const REASON = {
+  voz: { icon: <Mic size={16} aria-hidden />, tone: "accent", title: "Voz parecida" },
+  dato_compartido: { icon: <Hash size={16} aria-hidden />, tone: "critical", title: "Dato repetido" },
+  contenido: { icon: <Sparkles size={16} aria-hidden />, tone: "warning", title: "Mismo patrón de señales" },
+} as const;
+
+function CaseSide(props: {
+  id: string;
+  title: string;
+  started: string;
+  risk: RiskLevel;
+  scamType: string | null;
+  impersonating: string | null;
+  caller: string | null;
+}) {
   return (
-    <div>
-      <div className="flex justify-between text-xs">
-        <span className="text-muted">{label}</span>
-        <span className="tabular font-medium">{value === null ? "Sin datos" : pct(value)}</span>
+    <Link
+      href={`/panel/casos/${props.id}`}
+      className="flex min-w-0 flex-1 flex-col gap-3 rounded-[22px] bg-surface-2 p-5 transition-colors hover:bg-accent-wash"
+    >
+      <div>
+        <div className="tabular text-xs font-medium text-muted">Caso {caseCode(props.id)}</div>
+        <div className="mt-0.5 text-[15px] font-semibold leading-snug">{props.title}</div>
       </div>
-      <div className="mt-1 h-2 overflow-hidden rounded-full bg-surface-2">
-        {value !== null && <div className="bg-brand h-full rounded-full" style={{ width: `${Math.max(0, value) * 100}%` }} />}
+      <div className="flex flex-wrap items-center gap-2">
+        <RiskBadge level={props.risk} />
+        <ScamTypeChip type={props.scamType} />
       </div>
-    </div>
+      <dl className="space-y-1.5 text-xs text-fg-2">
+        <div className="flex items-center gap-1.5">
+          <CalendarDays size={12} className="text-muted" aria-hidden />
+          {fmtDateTime(props.started)}
+        </div>
+        <CallerNumber incident={{ caller_e164: props.caller, caller_number_raw: null }} />
+        {props.impersonating && (
+          <div className="flex items-center gap-1.5">
+            <UserRound size={12} className="text-muted" aria-hidden />
+            Se hace pasar por: <span className="font-medium text-fg">{props.impersonating}</span>
+          </div>
+        )}
+      </dl>
+    </Link>
   );
 }
 
-function LinkCard({ l }: { l: LinkView }) {
-  const side = (id: string, title: string, started: string, risk: LinkView["a_risk"]) => (
-    <Link href={`/panel/casos/${id}`} className="block min-w-0 flex-1 rounded-lg bg-surface-2 p-3 hover:ring-1 hover:ring-line-strong">
-      <div className="truncate text-sm font-medium">{title}</div>
-      <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted">
-        {fmtDateTime(started)} <RiskBadge level={risk} />
-      </div>
-    </Link>
-  );
+function ReasonRow({ icon, tone, title, children }: { icon: ReactNode; tone: "accent" | "critical" | "warning"; title: string; children: ReactNode }) {
   return (
-    <li className="rounded-3xl bg-surface p-5 shadow-soft">
-      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-        <div className="flex items-center gap-2">
-          <LinkStatusTag status={l.status} />
-          <span className="text-xs text-muted">Puntaje combinado {pct(l.score)}</span>
-          <span className="text-xs text-muted">Evidencia v{l.evidence_version}{l.status !== "pendiente" ? " · conservada al revisar" : ""}</span>
-        </div>
-        {l.reviewed_by && l.reviewed_at && (
-          <span className="text-xs text-muted">
-            Revisado por {l.reviewed_by} · {fmtDateTime(l.reviewed_at)}
-          </span>
-        )}
+    <li className="flex items-start gap-3">
+      <IconBubble tone={tone}>{icon}</IconBubble>
+      <div className="min-w-0 pt-0.5">
+        <div className="text-sm font-semibold">{title}</div>
+        <div className="text-sm text-fg-2">{children}</div>
       </div>
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-        {side(l.incident_a, l.a_title, l.a_started, l.a_risk)}
-        <span className="self-center text-muted" aria-hidden>
-          ↔
-        </span>
-        {side(l.incident_b, l.b_title, l.b_started, l.b_risk)}
-      </div>
-      <div className="mt-4 grid gap-4 md:grid-cols-2">
-        <div>
-          <h3 className="text-xs font-semibold uppercase tracking-wide text-muted">Por qué se propone</h3>
-          <LinkReasons reasons={l.reasons} />
-        </div>
-        <div className="space-y-2">
-          <Similarity label="Similitud de voz (pista, no identificación)" value={l.voice_sim} />
-          <Similarity label="Similitud de contenido" value={l.content_sim} />
-        </div>
-      </div>
-      {l.note && <p className="mt-3 rounded-2xl bg-accent-wash px-4 py-2.5 text-sm text-accent-ink">{l.note}</p>}
-      <form className="mt-3 flex flex-col gap-2 sm:flex-row" action={reviewLink.bind(null, l.id, l.status === "pendiente" ? "confirmado" : "pendiente")}>
-        {l.status === "pendiente" ? (
-          <>
-            <input
-              name="note"
-              placeholder="Nota de revisión (opcional)"
-              className="min-w-0 flex-1 rounded-full border border-line bg-surface px-4 py-2 text-sm outline-none focus:border-accent focus:ring-4 focus:ring-accent/15"
-            />
-            <button className={buttonCls.primary}>Confirmar vínculo</button>
-            <button formAction={reviewLink.bind(null, l.id, "descartado")} className={buttonCls.secondary}>
-              Descartar
-            </button>
-          </>
-        ) : (
-          <button className={buttonCls.ghost}>Volver a pendiente para recalcular</button>
-        )}
-      </form>
     </li>
   );
 }
 
-const TABS = [
-  { id: "pendiente", label: "Pendientes" },
-  { id: "confirmado", label: "Confirmados" },
-  { id: "descartado", label: "Descartados" },
-] as const;
+function LinkCard({ l }: { l: LinkView }) {
+  const s = strength(l.score);
+  const reasons = visibleReasons(l.reasons);
+  return (
+    <li className="rounded-3xl bg-surface p-6 shadow-soft sm:p-7">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <span className="tabular text-[30px] font-bold leading-none text-accent-ink">{pct(l.score)}</span>
+          <div>
+            <span className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${s.cls}`}>{s.label}</span>
+            <div className="mt-1 text-xs text-muted">Coincidencia calculada por la IA</div>
+          </div>
+        </div>
+        <div className="text-xs text-muted">Detectado {fmtDateTime(l.created_at)}</div>
+      </div>
 
-export default async function LinksPage({ searchParams }: PageProps<"/panel/vinculos">) {
+      <div className="mt-6 grid items-stretch gap-4 md:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)]">
+        <CaseSide
+          id={l.incident_a}
+          title={l.a_title}
+          started={l.a_started}
+          risk={l.a_risk}
+          scamType={l.a_scam_type}
+          impersonating={l.a_impersonating}
+          caller={l.a_caller}
+        />
+        <div className="flex items-center justify-center" aria-hidden>
+          <span className="grid h-10 w-10 place-items-center rounded-full bg-brand text-white shadow-soft">
+            <Link2 size={18} />
+          </span>
+        </div>
+        <CaseSide
+          id={l.incident_b}
+          title={l.b_title}
+          started={l.b_started}
+          risk={l.b_risk}
+          scamType={l.b_scam_type}
+          impersonating={l.b_impersonating}
+          caller={l.b_caller}
+        />
+      </div>
+
+      <div className="mt-6 border-t border-line pt-5">
+        <h3 className="text-xs font-semibold tracking-widest text-muted">POR QUÉ LA IA LOS RELACIONA</h3>
+        {reasons.length ? (
+          <ul className="mt-4 grid gap-4 md:grid-cols-2">
+            {reasons.map((r, i) => {
+              const meta = REASON[r.kind as keyof typeof REASON] ?? REASON.contenido;
+              return (
+                <ReasonRow key={i} icon={meta.icon} tone={meta.tone} title={meta.title}>
+                  {r.detail.replace(/^[^:]+:\s*/, "")}
+                </ReasonRow>
+              );
+            })}
+          </ul>
+        ) : (
+          <p className="mt-3 text-sm text-muted">Sin razones detalladas.</p>
+        )}
+      </div>
+    </li>
+  );
+}
+
+export default async function LinksPage() {
   const { orgId } = await requireAnalyst();
-  const { estado } = await searchParams;
-  const current = TABS.find((t) => t.id === estado)?.id ?? "pendiente";
   const [links, incidents] = await Promise.all([listLinks(orgId), listSharedIncidents(orgId)]);
-  const items = links.filter((l) => l.status === current);
 
   return (
     <>
@@ -104,53 +149,23 @@ export default async function LinksPage({ searchParams }: PageProps<"/panel/vinc
           { href: "/panel/vinculos", label: "Vínculos" },
         ]}
         title="Vínculos entre casos"
-        description="El sistema propone vínculos combinando similitud de voz, datos repetidos y parecido del guion. Confirmar un vínculo documenta una posible campaña; atribuirla a una persona exige corroboración independiente."
+        description="La IA relaciona casos por voz parecida, datos repetidos (números, cuentas, nombres) y el mismo patrón de señales. Indica una posible campaña; atribuirla a una persona exige corroboración independiente."
       />
-      <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_26rem]">
-        <div className="min-w-0">
-          <nav
-            className="mb-5 flex w-fit max-w-full gap-1 overflow-x-auto rounded-full bg-surface p-1 shadow-soft ring-1 ring-line"
-            aria-label="Estado de los vínculos"
-          >
-            {TABS.map((t) => {
-              const n = links.filter((l) => l.status === t.id).length;
-              return (
-                <Link
-                  key={t.id}
-                  href={`/panel/vinculos?estado=${t.id}`}
-                  aria-current={current === t.id ? "page" : undefined}
-                  className={`flex shrink-0 items-center gap-1.5 rounded-full px-4 py-1.5 text-sm ${
-                    current === t.id ? "bg-brand font-semibold text-white shadow-glow" : "text-fg-2 hover:bg-surface-2 hover:text-fg"
-                  }`}
-                >
-                  {t.label}
-                  <span
-                    className={`tabular rounded-full px-1.5 text-[11px] font-bold ${
-                      current === t.id ? "bg-white/25 text-white" : "bg-surface-2 text-muted"
-                    }`}
-                  >
-                    {n}
-                  </span>
-                </Link>
-              );
-            })}
-          </nav>
-          {items.length ? (
-            <ul className="space-y-3">
-              {items.map((l) => (
-                <LinkCard key={l.id} l={l} />
-              ))}
-            </ul>
-          ) : (
-            <Empty>No hay vínculos en este estado.</Empty>
-          )}
-        </div>
-        <div className="xl:sticky xl:top-6 xl:self-start">
-          <Card title="Red de casos">
-            <LinkGraph incidents={incidents} links={links} compact />
-          </Card>
-        </div>
-      </div>
+
+      <Card title={`Red de casos · ${links.length} vínculos detectados`}>
+        <LinkGraph incidents={incidents} links={links} />
+      </Card>
+
+      <h2 className="mt-8 mb-4 text-[17px] font-semibold">Vínculos detectados por la IA</h2>
+      {links.length ? (
+        <ul className="space-y-6">
+          {links.map((l) => (
+            <LinkCard key={l.id} l={l} />
+          ))}
+        </ul>
+      ) : (
+        <Empty>La IA todavía no detectó vínculos entre casos.</Empty>
+      )}
     </>
   );
 }

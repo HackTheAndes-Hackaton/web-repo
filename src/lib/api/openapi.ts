@@ -96,7 +96,7 @@ export function buildOpenApi(baseUrl: string) {
         parameters: [
           idParam,
           ...(def.name === "incidents"
-            ? [{ name: "include", in: "query", schema: { type: "string" }, description: "Lista separada por comas: segments, signals, entities, actions, notes, voice-samples, links." }]
+            ? [{ name: "include", in: "query", schema: { type: "string" }, description: "Lista separada por comas: signals, entities, actions, notes, voice-samples, links." }]
             : []),
         ],
         responses: { "200": itemResponse("Registro."), ...errorResponses },
@@ -143,7 +143,7 @@ export function buildOpenApi(baseUrl: string) {
       title: "Tiskz API",
       version: "1.0.0",
       description:
-        "API gateway del panel de Tiskz. La consumen el servidor de llamadas y el servicio de IA para registrar incidentes, transcripciones, señales, datos observados y muestras de voz.",
+        "API gateway del panel de Tiskz. La consumen el servidor de llamadas y el servicio de IA para registrar incidentes, señales, datos observados y muestras de voz.",
     },
     servers: [{ url: `${baseUrl}/api/v1` }],
     security: [{ bearerAuth: [] }, { apiKeyHeader: [] }],

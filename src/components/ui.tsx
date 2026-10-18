@@ -1,7 +1,8 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
-import { ChevronRight, Circle, Square, Triangle } from "lucide-react";
-import { SIGNAL_LABELS, type RiskLevel, type SignalType } from "@/lib/types";
+import { ChevronRight, Circle, Phone, ShieldAlert, Square, Triangle } from "lucide-react";
+import { fmtPhone } from "@/lib/format";
+import { SIGNAL_LABELS, scamTypeLabel, type RiskLevel, type SignalType } from "@/lib/types";
 
 const RISK_STYLE: Record<RiskLevel, { label: string; Icon: typeof Circle; cls: string; dot: string; ink: string }> = {
   bajo: { label: "Riesgo bajo", Icon: Circle, cls: "bg-good-wash text-good-ink", dot: "bg-good", ink: "text-good" },
@@ -231,6 +232,28 @@ export function Pill({ children, icon }: { children: ReactNode; icon?: ReactNode
     <span className="inline-flex items-center gap-1.5 rounded-full bg-surface px-3 py-1.5 text-xs font-medium text-fg-2 shadow-soft ring-1 ring-line">
       {icon}
       {children}
+    </span>
+  );
+}
+/** Tipo de estafa que clasificó la IA. */
+export function ScamTypeChip({ type }: { type: string | null | undefined }) {
+  const label = scamTypeLabel(type);
+  if (!label) return null;
+  return (
+    <span className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-full bg-critical-wash px-2.5 py-0.5 text-xs font-semibold text-critical-ink">
+      <ShieldAlert size={12} aria-hidden />
+      {label}
+    </span>
+  );
+}
+
+/** Número desde el que llamaron. Un número mostrado puede ser falso. */
+export function CallerNumber({ incident, className = "" }: { incident: { caller_e164: string | null; caller_number_raw: string | null }; className?: string }) {
+  const number = fmtPhone(incident.caller_e164 ?? incident.caller_number_raw);
+  return (
+    <span className={`inline-flex items-center gap-1.5 whitespace-nowrap text-xs ${number ? "text-fg-2" : "text-muted"} ${className}`}>
+      <Phone size={12} aria-hidden />
+      <span className="tabular">{number ?? "Número no registrado"}</span>
     </span>
   );
 }

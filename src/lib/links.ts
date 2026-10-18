@@ -1,69 +1,32 @@
 import "server-only";
 import type postgres from "postgres";
 import { db, newId, nowIso, type Db } from "./db";
-import { normalizeText } from "./heuristics";
 import { ENTITY_LABELS, type EntityKind, type LinkReason, type SignalType } from "./types";
 
 /**
  * Propone vínculos entre incidentes compartidos con la misma organización.
- * Combina similitud de voz, datos repetidos y parecido del contenido. Los
+ * Combina similitud de voz, datos repetidos y coincidencia de tipos de señal
+ * (la transcripción no se guarda ni se compara). Los
  * vínculos quedan "pendientes" hasta que un analista los confirma o descarta.
  */
 
-const STOPWORDS = new Set(
-  "a al algo ante como con de del el ella ellos en entonces es esa ese eso esta este esto estoy hay la las le les lo los me mi mas muy no nos o para pero por que se si sin su sus te tu tus un una uno y ya yo ok bueno pues oye eh ah".split(
-    " ",
-  ),
-);
-
-function tokens(text: string) {
-  return normalizeText(text)
-    .replace(/[^a-z0-9ñ\s]/g, " ")
-    .split(/\s+/)
-    .filter((w) => w.length > 2 && !STOPWORDS.has(w));
-}
-
-function termVector(text: string) {
-  const v = new Map<string, number>();
-  for (const t of tokens(text)) v.set(t, (v.get(t) ?? 0) + 1);
-  return v;
-}
-
-function cosineMap(a: Map<string, number>, b: Map<string, number>) {
-  let dot = 0;
-  let na = 0;
-  let nb = 0;
-  for (const [k, x] of a) {
-    na += x * x;
-    const y = b.get(k);
-    if (y) dot += x * y;
-  }
-  for (const y of b.values()) nb += y * y;
-  return na && nb ? dot / Math.sqrt(na * nb) : 0;
-}
-
 interface Profile {
   id: string;
-  text: Map<string, number>;
   signalTypes: Set<SignalType>;
   entities: { kind: EntityKind; normalized: string; value: string }[];
 }
 
-/** Carga en lote el texto, las señales y los datos de varios incidentes. */
+/** Carga en lote las señales y los datos de varios incidentes. */
 async function loadProfiles(sql: Db, ids: string[]) {
-  const [texts, types, entities] = await Promise.all([
-    sql<{ incident_id: string; text: string }[]>`
-      select incident_id, string_agg(text, ' ' order by idx) as text
-      from segments where incident_id in ${sql(ids)} and speaker = 'caller' and is_final group by incident_id`,
+  const [types, entities] = await Promise.all([
     sql<{ incident_id: string; type: SignalType }[]>`
       select distinct incident_id, type from signals where incident_id in ${sql(ids)}`,
     sql<{ incident_id: string; kind: EntityKind; normalized: string; value: string }[]>`
       select incident_id, kind, normalized, value from entities where incident_id in ${sql(ids)}`,
   ]);
   const profiles = new Map<string, Profile>(
-    ids.map((id) => [id, { id, text: new Map(), signalTypes: new Set(), entities: [] }]),
+    ids.map((id) => [id, { id, signalTypes: new Set(), entities: [] }]),
   );
-  for (const t of texts) profiles.get(t.incident_id)!.text = termVector(t.text);
   for (const t of types) profiles.get(t.incident_id)!.signalTypes.add(t.type);
   for (const e of entities) profiles.get(e.incident_id)!.entities.push(e);
   return profiles;
@@ -125,15 +88,14 @@ function compare(a: Profile, b: Profile, voiceSim: number | null) {
     }
   }
 
-  const textSim = cosineMap(a.text, b.text);
+  // Coincidencia de tipos de señal (Jaccard): mismo patrón de engaño.
   const union = new Set([...a.signalTypes, ...b.signalTypes]);
   const inter = [...a.signalTypes].filter((t) => b.signalTypes.has(t));
-  const signalSim = union.size ? inter.length / union.size : 0;
-  const contentSim = 0.5 * textSim + 0.5 * signalSim;
-  if (contentSim >= 0.35) {
+  const contentSim = union.size ? inter.length / union.size : 0;
+  if (contentSim >= 0.5) {
     reasons.push({
       kind: "contenido",
-      detail: `Guion parecido: ${(contentSim * 100).toFixed(0)}% de coincidencia en palabras y tipos de señal.`,
+      detail: `Patrón de señales parecido: ${(contentSim * 100).toFixed(0)}% de coincidencia en los tipos de señal.`,
     });
   }
 
@@ -186,7 +148,7 @@ export async function refreshLinksFor(incidentId: string, tx?: Db) {
     }
     const reasons = sql.json(result.reasons as unknown as postgres.JSONValue);
     const evidence = sql.json({
-      algorithm: "links-v2", metric: "cosine", voice_threshold: 0.8,
+      algorithm: "links-v3", metric: "cosine", voice_threshold: 0.8,
       sample_a: voice ? (a === incidentId ? voice.sample_a : voice.sample_b) : null,
       sample_b: voice ? (a === incidentId ? voice.sample_b : voice.sample_a) : null,
       model_id: voice?.model_id ?? null, model_version: voice?.model_version ?? null,

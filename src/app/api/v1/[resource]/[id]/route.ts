@@ -16,7 +16,7 @@ const INCLUDABLE = RESOURCES.filter((r) => r.childOfIncident).map((r) => r.name)
 
 /**
  * GET /api/v1/{recurso}/{id}
- * En incidentes acepta ?include=segments,signals,entities,actions,notes,voice-samples,links
+ * En incidentes acepta ?include=signals,entities,actions,notes,voice-samples,links
  */
 export const GET = withApi(async (request, ctx: Ctx) => {
   const { def, id } = await target(ctx);

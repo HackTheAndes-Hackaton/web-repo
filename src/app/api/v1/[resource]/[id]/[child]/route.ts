@@ -4,7 +4,7 @@ import { getResource } from "@/lib/api/resources";
 
 type Ctx = RouteContext<"/api/v1/[resource]/[id]/[child]">;
 
-/** Solo los incidentes tienen subcolecciones: /api/v1/incidents/{id}/{segments|signals|...}. */
+/** Solo los incidentes tienen subcolecciones: /api/v1/incidents/{id}/{signals|entities|...}. */
 async function target(ctx: Ctx) {
   const { resource, id, child } = await ctx.params;
   const parent = getResource(resource);

@@ -223,71 +223,10 @@ const incidents: ResourceDef = {
   }),
 };
 
-// ---------- Fragmentos de transcripción ----------
-const segmentFields = {
-  external_segment_id: text(200).nullable(),
-  flagged: z.boolean(),
-  is_final: z.boolean(),
-  end_offset: z.number().min(0).nullable(),
-  source: text(60).nullable(),
-  idx: z.number().int().min(0),
-  t_offset: z.number().min(0),
-  speaker: z.string().trim().max(60).nullable(),
-  text: text(10000),
-};
-const segments: ResourceDef = {
-  name: "segments",
-  table: "segments",
-  title: "Transcripción",
-  description:
-    "Fragmentos de la transcripción, en orden. Si no se envía idx, se asigna el siguiente. t_offset = segundos desde el inicio.",
-  idPrefix: "seg",
-  columns: ["id", "incident_id", "idx", "t_offset", "speaker", "text", "external_segment_id", "flagged", "is_final", "end_offset", "source", "created_at", "updated_at"],
-  create: z
-    .object({
-      id: id.optional(),
-      incident_id: ref,
-      idx: segmentFields.idx.optional(),
-      t_offset: segmentFields.t_offset.default(0),
-      speaker: nullable(segmentFields.speaker.unwrap()),
-      text: segmentFields.text,
-      created_at: datetime.optional(),
-      external_segment_id: nullable(text(200)),
-      flagged: z.boolean().default(false),
-      is_final: z.boolean().default(true),
-      end_offset: nullable(z.number().min(0)),
-      source: nullable(text(60)),
-    })
-    .strict(),
-  update: patchOf(segmentFields),
-  preparePatch: (patch) => ({ ...patch, updated_at: nowIso() }),
-  filters: ["incident_id", "speaker"],
-  dateColumn: "created_at",
-  order: { column: "idx", dir: "asc" },
-  childOfIncident: true,
-  prepare: async (rows, sql) => {
-    // Siguiente idx por incidente, respetando el orden del lote.
-    const next = new Map<string, number>();
-    for (const incidentId of new Set(rows.filter((r) => r.idx === undefined).map((r) => r.incident_id as string))) {
-      const [{ n }] = await sql<{ n: number }[]>`
-        select coalesce(max(idx) + 1, 0)::int as n from segments where incident_id = ${incidentId}`;
-      next.set(incidentId, n);
-    }
-    return withIdAndTimes("seg", rows).map((r) => {
-      if (r.idx !== undefined) return r;
-      const n = next.get(r.incident_id as string)!;
-      next.set(r.incident_id as string, n + 1);
-      return { ...r, idx: n };
-    });
-  },
-};
-
 // ---------- Señales ----------
 const signalFields = {
   analysis_meta: metadata,
-  segment_id: ref.nullable(),
   type: z.string().trim().min(1).max(64),
-  evidence: text(4000),
   explanation: text(4000),
   confidence: z.number().min(0).max(1),
   source: z.string().trim().min(1).max(40),
@@ -297,17 +236,15 @@ const signals: ResourceDef = {
   table: "signals",
   title: "Señales de riesgo",
   description:
-    "Señales inferidas por la IA. Tipos conocidos: urgencia, dinero, datos_sensibles, secreto, amenaza, suplantacion, aislamiento (se aceptan otros).",
+    "Señales inferidas por la IA, con su explicación (sin citas de la conversación: el panel no guarda transcripciones). Tipos conocidos: urgencia, dinero, datos_sensibles, secreto, amenaza, suplantacion, aislamiento (se aceptan otros).",
   idPrefix: "sig",
-  columns: ["id", "incident_id", "segment_id", "type", "evidence", "explanation", "confidence", "source", "analysis_meta", "created_at"],
+  columns: ["id", "incident_id", "type", "explanation", "confidence", "source", "analysis_meta", "created_at"],
   jsonColumns: ["analysis_meta"],
   create: z
     .object({
       id: id.optional(),
       incident_id: ref,
-      segment_id: nullable(ref),
       type: signalFields.type,
-      evidence: signalFields.evidence,
       explanation: signalFields.explanation,
       confidence: signalFields.confidence.default(0.5),
       source: signalFields.source.default("ia"),
@@ -316,17 +253,17 @@ const signals: ResourceDef = {
     })
     .strict(),
   update: patchOf(signalFields),
-  filters: ["incident_id", "segment_id", "type", "source"],
+  filters: ["incident_id", "type", "source"],
   dateColumn: "created_at",
   order: { column: "created_at", dir: "asc" },
   childOfIncident: true,
-  prepare: async (rows) => withIdAndTimes("sig", rows),
+  // La columna evidence (cita textual) queda en la base sin usarse.
+  prepare: async (rows) => withIdAndTimes("sig", rows).map((r) => ({ ...r, evidence: "" })),
 };
 
 // ---------- Datos observados ----------
 const entityFields = {
   analysis_meta: metadata,
-  segment_id: ref.nullable(),
   kind: z.string().trim().min(1).max(40),
   value: text(500),
   normalized: z.string().trim().min(1).max(500),
@@ -339,13 +276,12 @@ const entities: ResourceDef = {
   description:
     "Teléfonos, cuentas, montos, nombres, organizaciones o lugares. normalized se calcula si no se envía; un dato repetido en el mismo incidente se ignora. provenance: mencionado | mostrado | reportado_usuario.",
   idPrefix: "ent",
-  columns: ["id", "incident_id", "segment_id", "kind", "value", "normalized", "provenance", "analysis_meta", "created_at"],
+  columns: ["id", "incident_id", "kind", "value", "normalized", "provenance", "analysis_meta", "created_at"],
   jsonColumns: ["analysis_meta"],
   create: z
     .object({
       id: id.optional(),
       incident_id: ref,
-      segment_id: nullable(ref),
       kind: entityFields.kind,
       value: entityFields.value,
       normalized: entityFields.normalized.optional(),
@@ -355,7 +291,7 @@ const entities: ResourceDef = {
     })
     .strict(),
   update: patchOf(entityFields),
-  filters: ["incident_id", "segment_id", "kind", "normalized", "provenance"],
+  filters: ["incident_id", "kind", "normalized", "provenance"],
   dateColumn: "created_at",
   order: { column: "created_at", dir: "asc" },
   childOfIncident: true,
@@ -492,7 +428,7 @@ const links: ResourceDef = {
   table: "links",
   title: "Vínculos",
   description:
-    "Posibles relaciones entre dos incidentes. El panel también los calcula solo (voz, datos repetidos y guion). Filtra por incident_id para ver los de un caso.",
+    "Posibles relaciones entre dos incidentes. El panel también los calcula solo (voz, datos repetidos y patrón de señales). Filtra por incident_id para ver los de un caso.",
   idPrefix: "lnk",
   columns: [
     "id",
@@ -552,7 +488,6 @@ export const RESOURCES: ResourceDef[] = [
   organizations,
   users,
   incidents,
-  segments,
   signals,
   entities,
   voiceSamples,

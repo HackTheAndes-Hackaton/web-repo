@@ -31,3 +31,12 @@ export function fmtOffset(seconds: number) {
 export function pct(x: number) {
   return `${Math.round(x * 100)}%`;
 }
+
+/** Número legible: +52 55 2841 7730 para México; el resto tal como llega. */
+export function fmtPhone(raw: string | null | undefined) {
+  if (!raw) return null;
+  const digits = raw.replace(/[^\d+]/g, "");
+  const mx = digits.match(/^\+52(\d{2})(\d{4})(\d{4})$/);
+  if (mx) return `+52 ${mx[1]} ${mx[2]} ${mx[3]}`;
+  return raw;
+}

@@ -115,28 +115,10 @@ export interface Incident {
   sharing_revoked_at: string | null;
 }
 
-export interface Segment {
-  id: string;
-  incident_id: string;
-  idx: number;
-  t_offset: number;
-  speaker: string | null;
-  text: string;
-  created_at: string;
-  external_segment_id: string | null;
-  flagged: boolean;
-  is_final: boolean;
-  end_offset: number | null;
-  source: string | null;
-  updated_at: string;
-}
-
 export interface Signal {
   id: string;
   incident_id: string;
-  segment_id: string | null;
   type: string;
-  evidence: string;
   explanation: string;
   confidence: number;
   source: string;
@@ -146,7 +128,6 @@ export interface Signal {
 export interface Entity {
   id: string;
   incident_id: string;
-  segment_id: string | null;
   kind: string;
   value: string;
   normalized: string;
@@ -202,4 +183,22 @@ export function riskLevelFromScore(score: number): RiskLevel {
   if (score >= 65) return "alto";
   if (score >= 35) return "medio";
   return "bajo";
+}
+
+/** Tipos de estafa conocidos. La IA puede mandar otros: se muestran legibles. */
+export const SCAM_TYPE_LABELS: Record<string, string> = {
+  familiar_falso: "Falso familiar",
+  secuestro_virtual: "Secuestro virtual",
+  suplantacion_bancaria: "Suplantación bancaria",
+  premio_falso: "Premio falso",
+  autoridad_falsa: "Falsa autoridad",
+  cobro_falso: "Cobro falso",
+  inversion: "Inversión falsa",
+};
+
+export function scamTypeLabel(type: string | null | undefined) {
+  if (!type) return null;
+  if (SCAM_TYPE_LABELS[type]) return SCAM_TYPE_LABELS[type];
+  const text = type.replace(/[_-]+/g, " ").trim();
+  return text.charAt(0).toUpperCase() + text.slice(1);
 }
