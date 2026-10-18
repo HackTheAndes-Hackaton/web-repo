@@ -440,9 +440,12 @@ const notes: ResourceDef = {
 
 // ---------- Vínculos ----------
 const reason = z.object({ kind: z.string().min(1).max(40), detail: text(500) }).strict();
+const linkEvidenceMetadata = metadata.refine(value => !Object.hasOwn(value,"ai_explanation"), {
+  message:"La explicación Maritime se registra únicamente mediante la acción de análisis de la web.",
+});
 const linkFields = {
   reviewed_by_id: ref.nullable(),
-  evidence_snapshot: metadata,
+  evidence_snapshot: linkEvidenceMetadata,
   score: z.number().min(0).max(1),
   voice_sim: z.number().min(-1).max(1).nullable(),
   content_sim: z.number().min(0).max(1),
@@ -486,7 +489,7 @@ const links: ResourceDef = {
       status: linkFields.status.default("pendiente"),
       reviewed_by: nullable(linkFields.reviewed_by.unwrap()),
       reviewed_by_id: nullable(ref),
-      evidence_snapshot: metadata.default({}),
+      evidence_snapshot: linkEvidenceMetadata.default({}),
       note: nullable(linkFields.note.unwrap()),
     })
     .strict()

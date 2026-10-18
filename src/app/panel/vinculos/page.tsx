@@ -11,6 +11,11 @@ import { caseCode, listLinks, listSharedIncidents, type LinkView, type IncidentS
 import { buildLinkGroups, type LinkGroup } from "@/lib/link-groups";
 import { listSuspects, type SuspectSummary } from "@/lib/suspects";
 import { scamTypeLabel, type LinkReason, type RiskLevel } from "@/lib/types";
+import { explainLinkAction } from "./actions";
+
+type AiExplanation = {status?:string;behavior_similarity?:"similar"|"unclear"|"different";evidence_a?:string|null;
+  evidence_b?:string|null;supporting_reason_indexes?:number[];limitations?:string[];model_id?:string};
+const similarityLabel={similar:"Comportamiento parecido",unclear:"Similitud no determinada",different:"Comportamiento diferente"};
 
 /** Las razones antiguas basadas en el guion de la transcripción ya no se muestran. */
 const visibleReasons = (reasons: LinkReason[]) => reasons.filter((r) => !/guion/i.test(r.detail));
@@ -88,8 +93,12 @@ function ReasonRow({ icon, tone, title, children }: { icon: ReactNode; tone: "ac
 function ConnectionEvidence({ l }: { l: LinkView }) {
   const s = strength(l.score);
   const reasons = visibleReasons(l.reasons);
+  const snapshot = l.status === "pendiente" ? l.evidence_snapshot :
+    (l.reviewed_evidence?.evidence_snapshot as Record<string,unknown> | undefined) ?? l.evidence_snapshot;
+  const ai = snapshot?.ai_explanation as AiExplanation | undefined;
+  const canExplain = l.status === "pendiente" && l.explanation_eligible;
   return (
-    <li className="rounded-2xl border border-line p-4 sm:p-5">
+    <li id={`vinculo-${l.id}`} className="scroll-mt-6 rounded-2xl border border-line p-4 sm:p-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
           <span className="tabular text-[30px] font-bold leading-none text-accent-ink">{pct(l.score)}</span>
@@ -129,6 +138,39 @@ function ConnectionEvidence({ l }: { l: LinkView }) {
           <p className="mt-3 text-sm text-muted">Sin razones detalladas.</p>
         )}
       </div>
+      {(ai?.status === "completed" || canExplain) && (
+        <section className="mt-5 border-t border-line pt-5" aria-label="Comparación de comportamiento">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h3 className="flex items-center gap-2 text-sm font-semibold"><Sparkles size={16} aria-hidden />Comparación de Maritime</h3>
+              <p className="mt-1 text-xs text-muted">Compara dos resúmenes de prueba. No identifica personas ni confirma una estafa.</p>
+            </div>
+            {canExplain && ai?.status !== "running" && (
+              <form action={explainLinkAction}>
+                <input type="hidden" name="link_id" value={l.id} />
+                <button type="submit" className="rounded-full bg-accent-wash px-4 py-2 text-xs font-semibold text-accent-ink hover:underline">
+                  {ai?.status === "failed" ? "Reintentar comparación" : "Explicar con Maritime"}
+                </button>
+              </form>
+            )}
+          </div>
+          {ai?.status === "running" && l.status === "pendiente" && <p className="mt-3 text-sm text-muted">Comparación en curso.</p>}
+          {ai?.status === "failed" && <p className="mt-3 text-sm text-warning-ink">No se pudo completar la comparación. El vínculo sigue pendiente de revisión.</p>}
+          {ai?.status === "completed" && ai.behavior_similarity && (
+            <div className="mt-4 space-y-3 text-sm text-fg-2">
+              <p className="font-semibold text-fg">{similarityLabel[ai.behavior_similarity]} <span className="font-normal text-muted">· inferencia del modelo, pendiente de revisión humana</span></p>
+              {(ai.evidence_a || ai.evidence_b) && <dl className="grid gap-3 md:grid-cols-2">
+                {ai.evidence_a && <div className="rounded-xl bg-surface-2 p-3"><dt className="text-xs font-semibold text-muted">Resumen del primer caso</dt><dd className="mt-1">{ai.evidence_a}</dd></div>}
+                {ai.evidence_b && <div className="rounded-xl bg-surface-2 p-3"><dt className="text-xs font-semibold text-muted">Resumen del segundo caso</dt><dd className="mt-1">{ai.evidence_b}</dd></div>}
+              </dl>}
+              {!!ai.supporting_reason_indexes?.length && <p>Razones existentes consideradas: {ai.supporting_reason_indexes
+                .filter((index) => Number.isInteger(index) && index >= 0 && index < l.reasons.length)
+                .map((index) => l.reasons[index].detail).join(" · ")}</p>}
+              {!!ai.limitations?.length && <p className="text-xs text-muted">Límites: {ai.limitations.join(" · ")}</p>}
+            </div>
+          )}
+        </section>
+      )}
     </li>
   );
 }

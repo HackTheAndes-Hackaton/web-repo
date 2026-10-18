@@ -4,6 +4,7 @@ import { commitFindings } from "./findings";
 import { ApiError, ok, readJson, withApi } from "./http";
 import { emit } from "../events";
 import { refreshLinksFor } from "../links";
+import { explainTopPendingLinks } from "./link-explanations";
 
 type Ctx = { params: Promise<{ id: string }> };
 export const postFindings = withApi(async (request, ctx: Ctx, { key }) => {
@@ -14,6 +15,8 @@ export const postFindings = withApi(async (request, ctx: Ctx, { key }) => {
   if (!receipt.duplicate) after(async () => {
     await refreshLinksFor(id);
     emit({ type: "incident", orgId: org, incidentId: id });
+    emit({ type: "links", orgId: org });
+    await explainTopPendingLinks(org,id);
     emit({ type: "links", orgId: org });
   });
   const response = ok(receipt);

@@ -14,10 +14,11 @@ import { createRows, updateRow, deleteRow } from "../src/lib/api/crud.ts";
 import { bindNetworkOrigin, getNetworkOrigin, inspectNetworkOrigin } from "../src/lib/api/network-origin.ts";
 import { getVapiCall } from "../src/lib/api/vapi.ts";
 import { buildLinkGroups } from "../src/lib/link-groups.ts";
-import { getIncidentDetail, dashboardData, navCounts } from "../src/lib/repo.ts";
+import { getIncidentDetail, dashboardData, navCounts, listLinks } from "../src/lib/repo.ts";
 import { createSuspect, listSuspects, SuspectError, unassignCase } from "../src/lib/suspects.ts";
 import { commitFindings, findingsInput } from "../src/lib/api/findings.ts";
 import { finalizeCase } from "../src/lib/api/case-finalizations.ts";
+import { explainPendingLink, explainTopPendingLinks } from "../src/lib/api/link-explanations.ts";
 import { normalizePhonePe, normalizeAmountPe, entityMatchKeyPe } from "../src/lib/peru.ts";
 import { extractEntities } from "../src/lib/heuristics.ts";
 
@@ -837,5 +838,90 @@ test('Maritime: la web cierra un caso ficticio, publica el resumen y evita gener
     assert.equal(incident.analysis_status,'completed');
     assert.equal(incident.analysis_meta.report_generation.provider,'maritime');
     assert.equal(JSON.stringify(incident).includes(input.text),false);
+  });
+});
+
+test('Maritime: explica un vínculo pendiente con resúmenes autorizados sin cambiar la revisión ni consumir dos veces',async()=>{
+  await database(async(_db,sql)=>{
+    await fixture(sql);
+    await sql`update incidents set simulated=true,summary=case when id='a' then
+      'Se solicita transferir dinero con urgencia.' else 'Se presiona para enviar dinero de inmediato.' end,
+      consent_snapshot='{"report_storage":true,"report_sharing":true}',
+      analysis_meta='{"report_generation":{"status":"completed","provider":"maritime"}}' where id in ('a','b')`;
+    await sql`insert into entities(id,incident_id,kind,value,normalized) values
+      ('ea','a','telefono','999888777','+51999888777'),('eb','b','telefono','999888777','+51999888777')`;
+    await refreshLinksFor('a',sql);
+    const [before]=await sql`select * from links`;
+    assert.ok(before);
+    let calls=0;
+    const generate=async(context)=>{calls++;
+      assert.equal(context.case_a.summary,'Se solicita transferir dinero con urgencia.');
+      assert.equal(context.case_b.summary,'Se presiona para enviar dinero de inmediato.');
+      assert.equal(JSON.stringify(context).includes('999888777'),false);
+      return {behavior_similarity:'similar',evidence_a:'transferir dinero con urgencia',
+        evidence_b:'enviar dinero de inmediato',supporting_reason_indexes:[0],limitations:['No acredita identidad.'],
+        generation:{provider:'maritime',prompt_version:'pe-link-v1',model_id:'modelo-demo',usage:{total_tokens:40}}};};
+    const first=await explainPendingLink('org',before.id,{connection:sql,generate});
+    assert.equal(first.status,'completed');
+    const second=await explainPendingLink('org',before.id,{connection:sql,generate});
+    assert.equal(second.duplicate,true);assert.equal(calls,1);
+    await refreshLinksFor('a',sql);
+    const [after]=await sql`select * from links where id=${before.id}`;
+    assert.equal(after.score,before.score);assert.equal(after.status,'pendiente');
+    assert.equal(after.evidence_snapshot.ai_explanation.status,'completed');
+    globalThis.__sql=sql;globalThis.__dbReady=Promise.resolve();
+    try {assert.equal((await listLinks('org'))[0].explanation_eligible,true);}
+    finally {delete globalThis.__sql;delete globalThis.__dbReady;}
+    await sql`update links set status='confirmado',reviewed_by_id='analyst' where id=${before.id}`;
+    const [reviewed]=await sql`select * from links where id=${before.id}`;
+    assert.equal(reviewed.reviewed_evidence.evidence_snapshot.ai_explanation.status,'completed');
+    await assert.rejects(explainPendingLink('org',before.id,{connection:sql,generate}),error=>error.code==='link_already_reviewed');
+    assert.equal(calls,1);
+  });
+});
+
+test('Maritime: no compara casos sin permiso y el CRUD no puede fabricar una explicación',async()=>{
+  const draft={incident_a:'a',incident_b:'b',score:0.6,voice_sim:null,reviewed_by:null,reviewed_by_id:null,note:null};
+  assert.equal(getResource('links').create.safeParse({...draft,evidence_snapshot:{}}).success,true);
+  assert.equal(getResource('links').create.safeParse({...draft,
+    evidence_snapshot:{ai_explanation:{status:'completed'}}}).success,false);
+  assert.equal(getResource('links').update.safeParse({evidence_snapshot:{ai_explanation:{status:'completed'}}}).success,false);
+  await database(async(_db,sql)=>{
+    await fixture(sql);
+    await sql`update incidents set simulated=true,summary='Resumen ficticio.',
+      analysis_meta='{"report_generation":{"status":"completed","provider":"maritime"}}',
+      consent_snapshot=case when id='a' then '{"report_storage":true,"report_sharing":true}'::jsonb
+        else '{"report_storage":true,"report_sharing":false}'::jsonb end where id in ('a','b')`;
+    await sql`insert into links(id,incident_a,incident_b,score,content_sim,reasons,status)
+      values ('lnk-no-consent','a','b',0.6,0.5,'[]','pendiente')`;
+    let calls=0;
+    await assert.rejects(explainPendingLink('org','lnk-no-consent',{connection:sql,generate:async()=>{calls++;throw Error('unused');}}),
+      error=>error.code==='link_not_authorized');
+    assert.equal(calls,0);
+    assert.equal((await sql`select evidence_snapshot from links where id='lnk-no-consent'`)[0].evidence_snapshot.ai_explanation,undefined);
+  });
+});
+
+test('Maritime: el cierre compara solo los dos candidatos más fuertes de la misma organización',async()=>{
+  await database(async(_db,sql)=>{
+    await fixture(sql);
+    await sql`update incidents set simulated=true,summary='Resumen de prueba.',
+      analysis_meta='{"report_generation":{"status":"completed","provider":"maritime"}}',
+      consent_snapshot='{"report_storage":true,"report_sharing":true}' where id in ('a','b')`;
+    await sql`insert into incidents(id,org_id,simulated,summary,analysis_meta,consent_snapshot) values
+      ('c','org',true,'Resumen de prueba.','{"report_generation":{"status":"completed","provider":"maritime"}}','{"report_storage":true,"report_sharing":true}'),
+      ('d','org',true,'Resumen de prueba.','{"report_generation":{"status":"completed","provider":"maritime"}}','{"report_storage":true,"report_sharing":true}'),
+      ('foreign','other',true,'Resumen de prueba.','{"report_generation":{"status":"completed","provider":"maritime"}}','{"report_storage":true,"report_sharing":true}')`;
+    await sql`insert into links(id,incident_a,incident_b,score,content_sim,reasons,status) values
+      ('lnk-ab','a','b',0.8,0.6,'[]','pendiente'),('lnk-ac','a','c',0.7,0.6,'[]','pendiente'),
+      ('lnk-ad','a','d',0.6,0.6,'[]','pendiente'),('lnk-af','a','foreign',0.9,0.6,'[]','pendiente')`;
+    let calls=0;
+    const generate=async()=>{calls++;return {behavior_similarity:'unclear',evidence_a:null,evidence_b:null,
+      supporting_reason_indexes:[],limitations:['Pocos datos.'],generation:{provider:'maritime',prompt_version:'pe-link-v1',model_id:'demo',usage:{}}};};
+    const first=await explainTopPendingLinks('org','a',{connection:sql,generate});
+    assert.deepEqual(first.map(item=>item.link_id),['lnk-ab','lnk-ac']);assert.equal(calls,2);
+    assert.equal((await sql`select evidence_snapshot from links where id='lnk-ad'`)[0].evidence_snapshot.ai_explanation,undefined);
+    const second=await explainTopPendingLinks('org','a',{connection:sql,generate});
+    assert.deepEqual(second.map(item=>item.link_id),['lnk-ad']);assert.equal(calls,3);
   });
 });

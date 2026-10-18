@@ -49,6 +49,7 @@ export async function listSharedIncidents(orgId: string) {
 }
 
 export interface LinkView extends IncidentLink {
+  explanation_eligible: boolean;
   a_title: string;
   b_title: string;
   a_started: string;
@@ -70,7 +71,15 @@ export async function listLinks(orgId: string) {
            b.started_at as b_started, a.risk_level as a_risk, b.risk_level as b_risk,
            a.scam_type as a_scam_type, b.scam_type as b_scam_type,
            a.impersonating as a_impersonating, b.impersonating as b_impersonating,
-           coalesce(a.caller_e164, a.caller_number_raw) as a_caller, coalesce(b.caller_e164, b.caller_number_raw) as b_caller
+           coalesce(a.caller_e164, a.caller_number_raw) as a_caller, coalesce(b.caller_e164, b.caller_number_raw) as b_caller,
+           (a.simulated is true and b.simulated is true and a.sharing_revoked_at is null and b.sharing_revoked_at is null
+             and a.consent_snapshot->>'report_storage'='true' and b.consent_snapshot->>'report_storage'='true'
+             and a.consent_snapshot->>'report_sharing'='true' and b.consent_snapshot->>'report_sharing'='true'
+             and a.analysis_meta->'report_generation'->>'status'='completed'
+             and b.analysis_meta->'report_generation'->>'status'='completed'
+             and a.analysis_meta->'report_generation'->>'provider'='maritime'
+             and b.analysis_meta->'report_generation'->>'provider'='maritime'
+             and nullif(trim(a.summary),'') is not null and nullif(trim(b.summary),'') is not null) as explanation_eligible
     from links l join incidents a on a.id = l.incident_a join incidents b on b.id = l.incident_b
     where a.org_id = ${orgId} and b.org_id = ${orgId} and l.status <> 'descartado'
     order by l.score desc`;

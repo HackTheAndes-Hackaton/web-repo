@@ -154,10 +154,10 @@ function compare(a: Profile, b: Profile, voiceSim: number | null) {
 /** Recalcula vínculos del incidente contra los demás casos compartidos con su organización. */
 export async function refreshLinksFor(incidentId: string, tx?: Db) {
   const sql = tx ?? (await db());
-  const [inc] = await sql<{ id: string; org_id: string | null; simulated: boolean | null }[]>`
-    select id, org_id, simulated from incidents where id = ${incidentId}`;
+  const [inc] = await sql<{ id: string; org_id: string | null; simulated: boolean | null; sharing_revoked_at:string|null }[]>`
+    select id, org_id, simulated, sharing_revoked_at from incidents where id = ${incidentId}`;
   if (!inc) return;
-  if (!inc.org_id) {
+  if (!inc.org_id || inc.sharing_revoked_at) {
     // Si deja de compartirse, se quitan los vínculos que aún no revisó nadie.
     await sql`delete from links where (incident_a = ${incidentId} or incident_b = ${incidentId}) and status = 'pendiente'`;
     return;
@@ -165,7 +165,8 @@ export async function refreshLinksFor(incidentId: string, tx?: Db) {
   if (inc.simulated === null) return; // El origen histórico debe clasificarse antes de mezclar datos.
 
   const others = (
-    await sql<{ id: string }[]>`select id from incidents where org_id = ${inc.org_id} and simulated=${inc.simulated} and id != ${incidentId}`
+    await sql<{ id: string }[]>`select id from incidents where org_id = ${inc.org_id} and simulated=${inc.simulated}
+      and sharing_revoked_at is null and id != ${incidentId}`
   ).map((r) => r.id);
   if (!others.length) return;
 
@@ -201,6 +202,9 @@ export async function refreshLinksFor(incidentId: string, tx?: Db) {
       values (${newId("lnk")},${a},${b},${result.score},${result.voiceSim},${result.contentSim},${reasons},${evidence},'pendiente',${nowIso()})
       on conflict (incident_a,incident_b) do update set score=excluded.score, voice_sim=excluded.voice_sim,
         content_sim=excluded.content_sim, reasons=excluded.reasons, evidence_snapshot=excluded.evidence_snapshot
-      where links.status='pendiente'`;
+      where links.status='pendiente' and
+        (links.score,links.voice_sim,links.content_sim,links.reasons,links.evidence_snapshot - 'ai_explanation')
+        is distinct from
+        (excluded.score,excluded.voice_sim,excluded.content_sim,excluded.reasons,excluded.evidence_snapshot)`;
   }
 }
