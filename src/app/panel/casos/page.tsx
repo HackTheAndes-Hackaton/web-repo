@@ -3,6 +3,7 @@ import { ChevronRight, Search } from "lucide-react";
 import { CallerNumber, Empty, PageHeader, RiskBadge, ScamTypeChip } from "@/components/ui";
 import { fmtDateTime, fmtPhone } from "@/lib/format";
 import { requireAnalyst } from "@/lib/panel";
+import { bucketByCaller, type CallerBucket } from "@/lib/caller-buckets";
 import { caseCode, listSharedIncidents, type IncidentSummary } from "@/lib/repo";
 import { scamTypeLabel } from "@/lib/types";
 import { normalizeText } from "@/lib/heuristics";
@@ -21,30 +22,6 @@ const VERDICT_FILTERS = [
 ];
 
 type Params = { riesgo: string; veredicto: string; q: string };
-
-const RISK_ORDER = { alto: 3, medio: 2, bajo: 1 } as const;
-
-/** Llamadas de un mismo número: en la lista se ven como una sola fila que se despliega. */
-interface CallerBucket {
-  key: string;
-  number: string | null;
-  cases: IncidentSummary[];
-}
-
-function bucketByCaller(incidents: IncidentSummary[]) {
-  const buckets = new Map<string, CallerBucket>();
-  for (const i of incidents) {
-    const raw = i.caller_e164 ?? i.caller_number_raw;
-    const digits = raw?.replace(/\D/g, "") ?? "";
-    // Sin número (u oculto) cada caso va solo.
-    const key = digits.length >= 7 ? `n:${digits}` : `c:${i.id}`;
-    const b = buckets.get(key) ?? { key, number: digits.length >= 7 ? raw : null, cases: [] };
-    b.cases.push(i);
-    buckets.set(key, b);
-  }
-  // Los casos llegan ordenados del más reciente al más antiguo: el grupo toma la posición de su último caso.
-  return [...buckets.values()];
-}
 
 const COLS = "grid grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)_minmax(0,1fr)_8.5rem] items-center gap-4";
 
@@ -76,7 +53,7 @@ function CaseRow({ i }: { i: IncidentSummary }) {
 }
 
 function BucketRow({ b }: { b: CallerBucket }) {
-  const worst = [...b.cases].sort((x, y) => RISK_ORDER[y.risk_level] - RISK_ORDER[x.risk_level] || y.risk_score - x.risk_score)[0];
+  const worst = b.worst;
   return (
     <li>
       <details className="group">
