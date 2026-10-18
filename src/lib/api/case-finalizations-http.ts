@@ -1,14 +1,14 @@
 import "server-only";
 import { after } from "next/server";
 import { finalizeCase } from "./case-finalizations";
-import { ApiError, ok, readJson, withApi } from "./http";
+import { ApiError, ok, readJson, withApi, orgHeader } from "./http";
 import { refreshLinksFor } from "../links";
 import { explainTopPendingLinks } from "./link-explanations";
 import { emit } from "../events";
 
 export const postCaseFinalization = withApi(async (request, _ctx, {key}) => {
-  const org = request.headers.get("X-Tiskz-Org");
-  if (!org || !/^[A-Za-z0-9_.:-]{1,64}$/.test(org)) throw new ApiError(400,"organization_required","Indica X-Tiskz-Org.");
+  const org = orgHeader(request);
+  if (!org || !/^[A-Za-z0-9_.:-]{1,64}$/.test(org)) throw new ApiError(400,"organization_required","Indica X-PhoneWard-Org.");
   const result = await finalizeCase(org,await readJson(request),key.id);
   if (result.status === "completed" && !result.duplicate) after(async()=>{
     await refreshLinksFor(result.incident_id);

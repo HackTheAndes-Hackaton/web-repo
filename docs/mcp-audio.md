@@ -1,6 +1,6 @@
-# Audio autorizado de Tiskz
+# Audio autorizado de PhoneWard
 
-`POST /api/v1/mcp` expone MCP Streamable HTTP con autenticación de la API existente (`Authorization: Bearer tkz_…`) y `X-Tiskz-Org`. Las claves actuales son globales de servicio; no son credenciales de usuarios ni se distribuyen a la APK. El backend fija la organización y la sesión antes de llamar herramientas.
+`POST /api/v1/mcp` expone MCP Streamable HTTP con autenticación de la API existente (`Authorization: Bearer phw_…`) y `X-PhoneWard-Org`. Las claves actuales son globales de servicio; no son credenciales de usuarios ni se distribuyen a la APK. El backend fija la organización y la sesión antes de llamar herramientas.
 
 Herramientas:
 
@@ -25,4 +25,4 @@ El guardado determinista de la APK puede usar HTTP en lugar de `tools/call`. Com
 - `GET /api/v1/audio-fragments?session_id=UUID`: lista sin audio.
 - `GET /api/v1/audio-fragments/{id}?session_id=UUID`: WAV con `Cache-Control: no-store`.
 
-Exige la clave de servicio y `X-Tiskz-Org`. El backend de voz los adjunta; la APK solo posee su ticket de sesión. No se admite subir directamente con una clave global incluida en la aplicación. MCP permanece disponible para las herramientas de agentes.
+Exige la clave de servicio y `X-PhoneWard-Org`. El backend de voz los adjunta; la APK solo posee su ticket de sesión. No se admite subir directamente con una clave global incluida en la aplicación. MCP permanece disponible para las herramientas de agentes.

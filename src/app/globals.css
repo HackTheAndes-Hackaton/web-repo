@@ -2,7 +2,7 @@
 @import "tailwindcss" source("../");
 
 /*
- * Misma paleta que la app móvil de Tiskz:
+ * Misma paleta que la app móvil de PhoneWard:
  * marca en degradado azul profundo → azul → celeste, fondo azulado con tarjetas blancas,
  * y riesgo verde (bajo) · ámbar (medio) · rojo (alto).
  */
@@ -111,7 +111,7 @@ body {
 }
 
 /* Anillos que se expanden y desvanecen alrededor del escudo (como en el móvil). */
-@keyframes tiskz-ring {
+@keyframes pw-ring {
   0% {
     transform: scale(0.55);
     opacity: 0.55;
@@ -123,11 +123,11 @@ body {
 }
 
 .pulse-ring {
-  animation: tiskz-ring 2.4s linear infinite;
+  animation: pw-ring 2.4s linear infinite;
 }
 
 /* Barras de audio animadas: "en vivo". */
-@keyframes tiskz-wave {
+@keyframes pw-wave {
   0%,
   100% {
     transform: scaleY(0.35);
@@ -139,7 +139,7 @@ body {
 
 .wave-bar {
   transform-origin: center;
-  animation: tiskz-wave 0.9s ease-in-out infinite;
+  animation: pw-wave 0.9s ease-in-out infinite;
 }
 
 @media (prefers-reduced-motion: reduce) {

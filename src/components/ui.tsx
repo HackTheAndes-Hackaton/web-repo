@@ -10,8 +10,8 @@ const RISK_STYLE: Record<RiskLevel, { label: string; Icon: typeof Circle; cls: s
   alto: { label: "Riesgo alto", Icon: Square, cls: "bg-critical-wash text-critical-ink", dot: "bg-critical", ink: "text-critical" },
 };
 
-/** Marca de Tiskz: escudo con ondas de voz (el mismo ícono de la app móvil). */
-export function TiskzMark({ size = 20, className = "" }: { size?: number; className?: string }) {
+/** Marca de PhoneWard: escudo con ondas de voz (el mismo ícono de la app móvil). */
+export function BrandMark({ size = 20, className = "" }: { size?: number; className?: string }) {
   return (
     <svg
       viewBox="31 26 46 56"
@@ -36,7 +36,7 @@ export function BrandLogo({ size = 36, onDark = false }: { size?: number; onDark
       className={`grid shrink-0 place-items-center text-white ${onDark ? "bg-glass ring-1 ring-white/20" : "bg-brand shadow-glow"}`}
       style={{ width: size, height: size, borderRadius: size * 0.3 }}
     >
-      <TiskzMark size={Math.round(size * 0.58)} />
+      <BrandMark size={Math.round(size * 0.58)} />
     </span>
   );
 }
@@ -57,13 +57,13 @@ export function PulsingShield({ size = 132 }: { size?: number }) {
         className="bg-glass relative grid place-items-center rounded-full text-white ring-1 ring-white/30"
         style={{ width: core, height: core }}
       >
-        <TiskzMark size={Math.round(core * 0.6)} />
+        <BrandMark size={Math.round(core * 0.6)} />
       </span>
     </span>
   );
 }
 
-/** Barras de audio animadas, como la píldora "Tiskz IA está atendiendo" del móvil. */
+/** Barras de audio animadas, como la píldora "PhoneWard IA está atendiendo" del móvil. */
 export function WaveBars({ className = "bg-accent" }: { className?: string }) {
   return (
     <span className="inline-flex h-3.5 items-center gap-0.5" aria-hidden>
