@@ -217,6 +217,41 @@ function countBy(values: (string | null)[]) {
   return [...counts.entries()].map(([value, n]) => ({ value, n })).sort((a, b) => b.n - a.n);
 }
 
+export interface BlockedNumber {
+  number: string;
+  digits: string;
+  /** Llamadas de este número que llegaron marcadas como bloqueadas. */
+  blocks: number;
+  /** Personas distintas que lo bloquearon. */
+  people: number;
+  /** Todas las llamadas de este número, bloqueadas o no. */
+  calls: number;
+  last_blocked: string;
+  max_risk: number;
+}
+
+/**
+ * Cuántas veces se bloqueó cada número: la app marca la llamada como bloqueada
+ * (incidents.blocked) cuando la persona bloquea el número durante la llamada.
+ */
+export async function listBlockedNumbers(orgId: string) {
+  const sql = await db();
+  const rows = await sql<BlockedNumber[]>`
+    select max(coalesce(caller_e164, caller_number_raw)) as number,
+           regexp_replace(coalesce(caller_e164, caller_number_raw), '\\D', '', 'g') as digits,
+           count(*) filter (where blocked)::int as blocks,
+           count(distinct user_id) filter (where blocked)::int as people,
+           count(*)::int as calls,
+           max(started_at) filter (where blocked) as last_blocked,
+           max(risk_score)::int as max_risk
+    from incidents
+    where org_id = ${orgId} and coalesce(caller_e164, caller_number_raw) is not null
+    group by 2
+    having count(*) filter (where blocked) > 0
+    order by blocks desc, last_blocked desc`;
+  return [...rows];
+}
+
 /** Contadores para la barra lateral del analista. */
 export async function navCounts(orgId: string) {
   const sql = await db();

@@ -1,9 +1,8 @@
 import Link from "next/link";
-import { ChevronRight, Search } from "lucide-react";
+import { Ban, Search } from "lucide-react";
 import { CallerNumber, Empty, PageHeader, RiskBadge, ScamTypeChip } from "@/components/ui";
-import { fmtDateTime, fmtPhone } from "@/lib/format";
+import { fmtDateTime } from "@/lib/format";
 import { requireAnalyst } from "@/lib/panel";
-import { bucketByCaller, type CallerBucket } from "@/lib/caller-buckets";
 import { caseCode, listSharedIncidents, type IncidentSummary } from "@/lib/repo";
 import { scamTypeLabel } from "@/lib/types";
 import { normalizeText } from "@/lib/heuristics";
@@ -42,7 +41,15 @@ function CaseRow({ i }: { i: IncidentSummary }) {
       <Link href={`/panel/casos/${i.id}`} className={`${COLS} px-5 py-3.5 hover:bg-accent-wash/50`}>
         <span className="min-w-0">
           <span className="block truncate font-semibold">{i.title}</span>
-          <span className="tabular block text-xs text-muted">{caseCode(i.id)} · {fmtDateTime(i.started_at)}</span>
+          <span className="tabular flex items-center gap-2 text-xs text-muted">
+            {caseCode(i.id)} · {fmtDateTime(i.started_at)}
+            {i.blocked && (
+              <span className="inline-flex items-center gap-1 rounded-full bg-critical-wash px-2 font-semibold text-critical-ink">
+                <Ban size={11} aria-hidden />
+                Bloqueada
+              </span>
+            )}
+          </span>
         </span>
         <span className="min-w-0 truncate text-sm text-fg-2"><CallerNumber incident={i} /></span>
         <TypeCell cases={[i]} />
@@ -52,41 +59,6 @@ function CaseRow({ i }: { i: IncidentSummary }) {
   );
 }
 
-function BucketRow({ b }: { b: CallerBucket }) {
-  const worst = b.worst;
-  return (
-    <li>
-      <details className="group">
-        <summary className={`${COLS} cursor-pointer list-none px-5 py-3.5 hover:bg-accent-wash/50 [&::-webkit-details-marker]:hidden`}>
-          <span className="min-w-0">
-            <span className="flex items-center gap-1.5 font-semibold">
-              <ChevronRight size={15} className="shrink-0 text-muted transition group-open:rotate-90" aria-hidden />
-              {b.cases.length} llamadas del mismo número
-            </span>
-            <span className="block pl-5 text-xs text-muted">Última: {fmtDateTime(b.cases[0].started_at)}</span>
-          </span>
-          <span className="tabular min-w-0 truncate text-sm font-medium">{fmtPhone(b.number) ?? b.number}</span>
-          <TypeCell cases={b.cases} />
-          <span title="El riesgo más alto entre estas llamadas"><RiskBadge level={worst.risk_level} score={worst.risk_score} /></span>
-        </summary>
-        <ul className="border-t border-line bg-surface-2/50">
-          {b.cases.map((i) => (
-            <li key={i.id}>
-              <Link href={`/panel/casos/${i.id}`} className={`${COLS} py-2 pr-5 pl-11 text-sm hover:bg-accent-wash/50`}>
-                <span className="tabular min-w-0 truncate">
-                  <span className="font-semibold">{caseCode(i.id)}</span> <span className="text-muted">· {fmtDateTime(i.started_at)}</span>
-                </span>
-                <span className="min-w-0 truncate text-fg-2">{i.title}</span>
-                <TypeCell cases={[i]} />
-                <RiskBadge level={i.risk_level} score={i.risk_score} />
-              </Link>
-            </li>
-          ))}
-        </ul>
-      </details>
-    </li>
-  );
-}
 
 
 function filterHref(current: Params, k: keyof Params, v: string) {
@@ -192,15 +164,13 @@ export default async function Cases({ searchParams }: PageProps<"/panel/casos">)
         <div className="overflow-x-auto rounded-3xl bg-surface shadow-soft">
           <div className="min-w-[760px]">
             <div className={`${COLS} bg-surface-2/70 px-5 py-3 text-[11px] font-medium uppercase tracking-wider text-muted`}>
-              <span>Caso</span>
+              <span>Llamada</span>
               <span>Número que llamó</span>
               <span>Tipo de estafa</span>
               <span>Riesgo</span>
             </div>
             <ul className="divide-y divide-line">
-              {bucketByCaller(incidents).map((b) =>
-                b.cases.length > 1 ? <BucketRow key={b.key} b={b} /> : <CaseRow key={b.key} i={b.cases[0]} />,
-              )}
+              {incidents.map((i) => <CaseRow key={i.id} i={i} />)}
             </ul>
           </div>
         </div>

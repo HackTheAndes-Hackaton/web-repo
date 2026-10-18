@@ -4,14 +4,12 @@ import type { ReactNode } from "react";
 import { unassignCaseAction } from "@/app/actions";
 import { LinkGraph } from "@/components/LinkGraph";
 import { AddMissingForm, EditSuspectForm, NameGroupForm } from "@/components/SuspectForms";
-import { ReportSelectionForm } from "@/components/ReportSelectionForm";
 import { CallerNumber, Card, Empty, IconBubble, PageHeader, RiskBadge, RiskIcon, ScamTypeChip } from "@/components/ui";
 import { fmtDateTime, fmtPhone, pct } from "@/lib/format";
 import { requireAnalyst } from "@/lib/panel";
 import { caseCode, listLinks, listSharedIncidents, type LinkView, type IncidentSummary } from "@/lib/repo";
 import { buildLinkGroups, type LinkGroup } from "@/lib/link-groups";
 import { listSuspects, type SuspectSummary } from "@/lib/suspects";
-import { listLatestReportVersions, type ReportVersion } from "@/lib/reports/versions";
 import { scamTypeLabel, type LinkReason, type RiskLevel } from "@/lib/types";
 import { explainLinkAction } from "./actions";
 
@@ -210,18 +208,11 @@ function GroupRecord({ members, suspects }: { members: IncidentSummary[]; suspec
 const BIG_GROUP = 7;
 const TOP_CONNECTIONS = 10;
 
-function GroupCard({ group, cases, suspects, reports }: { group: LinkGroup<LinkView>; cases: Map<string, IncidentSummary>; suspects: Map<string, SuspectSummary>; reports: ReportVersion[] }) {
+function GroupCard({ group, cases, suspects }: { group: LinkGroup<LinkView>; cases: Map<string, IncidentSummary>; suspects: Map<string, SuspectSummary> }) {
   const members = group.incidentIds.map((id) => cases.get(id)!).sort((a, b) => a.started_at.localeCompare(b.started_at));
   // En grupos grandes las tarjetas y las N×(N−1)/2 conexiones no se pueden leer: lista compacta y las más fuertes.
   const big = members.length >= BIG_GROUP;
   const strongest = [...group.links].sort((a, b) => b.score - a.score).slice(0, big ? TOP_CONNECTIONS : undefined);
-  const reportEligible = members.every((item) => {
-    const generation = item.analysis_meta?.report_generation as Record<string, unknown> | undefined;
-    return item.simulated === true && item.status === "finalizado" && !item.sharing_revoked_at &&
-      item.consent_snapshot?.report_storage === true && item.consent_snapshot?.report_sharing === true &&
-      generation?.provider === "maritime" && generation?.status === "completed" && Boolean(item.summary?.trim());
-  });
-  const relatedReports = reports.filter((report) => report.snapshot.selected_case_ids.some((id) => group.incidentIds.includes(id)));
   return (
     <li id={group.anchor} className="scroll-mt-6 rounded-3xl bg-surface p-6 shadow-soft sm:p-7">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -275,11 +266,6 @@ function GroupCard({ group, cases, suspects, reports }: { group: LinkGroup<LinkV
           </p>
         )}
       </details>
-      {reportEligible && <ReportSelectionForm
-        cases={members.map((item) => ({ id: item.id, title: item.title }))}
-        links={group.links.map((item) => ({ id: item.id, a: item.incident_a, b: item.incident_b,
-          title: item.status === "confirmado" ? "confirmado por analista" : "pendiente de revisión" }))}
-        series={relatedReports} />}
     </li>
   );
 }
@@ -353,7 +339,7 @@ function SuspectRecord({ suspect, cases }: { suspect: SuspectSummary; cases: Inc
 
 export default async function LinksPage({searchParams}:{searchParams:Promise<{informe?:string}>}) {
   const { orgId } = await requireAnalyst();
-  const [links, incidents, suspectList, reports] = await Promise.all([listLinks(orgId), listSharedIncidents(orgId), listSuspects(orgId), listLatestReportVersions(orgId)]);
+  const [links, incidents, suspectList] = await Promise.all([listLinks(orgId), listSharedIncidents(orgId), listSuspects(orgId)]);
   const {informe} = await searchParams;
   const suspects = new Map(suspectList.map((s) => [s.id, s]));
   const groups = buildLinkGroups(incidents, links);
@@ -389,7 +375,7 @@ export default async function LinksPage({searchParams}:{searchParams:Promise<{in
       {groups.length ? (
         <ul className="space-y-6">
           {groups.map((group) => (
-            <GroupCard key={group.anchor} group={group} cases={cases} suspects={suspects} reports={reports} />
+            <GroupCard key={group.anchor} group={group} cases={cases} suspects={suspects} />
           ))}
         </ul>
       ) : (

@@ -14,7 +14,7 @@ import { createRows, updateRow, deleteRow } from "../src/lib/api/crud.ts";
 import { bindNetworkOrigin, getNetworkOrigin, inspectNetworkOrigin } from "../src/lib/api/network-origin.ts";
 import { getVapiCall } from "../src/lib/api/vapi.ts";
 import { buildLinkGroups } from "../src/lib/link-groups.ts";
-import { getIncidentDetail, dashboardData, navCounts, listLinks } from "../src/lib/repo.ts";
+import { getIncidentDetail, dashboardData, navCounts, listLinks, listBlockedNumbers } from "../src/lib/repo.ts";
 import { createSuspect, listSuspects, SuspectError, unassignCase } from "../src/lib/suspects.ts";
 import { commitFindings, findingsInput } from "../src/lib/api/findings.ts";
 import { finalizeCase } from "../src/lib/api/case-finalizations.ts";
@@ -923,5 +923,30 @@ test('Maritime: el cierre compara solo los dos candidatos más fuertes de la mis
     assert.equal((await sql`select evidence_snapshot from links where id='lnk-ad'`)[0].evidence_snapshot.ai_explanation,undefined);
     const second=await explainTopPendingLinks('org','a',{connection:sql,generate});
     assert.deepEqual(second.map(item=>item.link_id),['lnk-ad']);assert.equal(calls,3);
+  });
+});
+
+test('números bloqueados: cuenta bloqueos y personas por número, sin mezclar formatos ni organizaciones', async () => {
+  await database(async (_db,sql) => {
+    await fixture(sql);
+    await sql`insert into users(id,name,role) values ('u1','Uno','usuario'),('u2','Dos','usuario')`;
+    await sql`insert into incidents(id,org_id,simulated,user_id,caller_e164,caller_number_raw,blocked,started_at) values
+      ('b1','org',false,'u1','+51946189585',null,true,'2026-10-18T10:00:00Z'),
+      ('b2','org',false,'u2',null,'+51 946 189 585',true,'2026-10-18T11:00:00Z'),
+      ('b3','org',false,'u2','+51946189585',null,false,'2026-10-18T12:00:00Z'),
+      ('b4','org',false,'u1','+51999000111',null,false,'2026-10-18T12:00:00Z'),
+      ('b5','other',false,'u1','+51946189585',null,true,'2026-10-18T13:00:00Z')`;
+    globalThis.__sql=sql;
+    globalThis.__dbReady=Promise.resolve();
+    try {
+      const rows=await listBlockedNumbers('org');
+      assert.equal(rows.length,1);
+      assert.equal(rows[0].digits,'51946189585');
+      assert.equal(rows[0].blocks,2);
+      assert.equal(rows[0].people,2);
+      assert.equal(rows[0].calls,3);
+      assert.equal(rows[0].last_blocked,'2026-10-18T11:00:00.000Z');
+      assert.equal((await listBlockedNumbers('other'))[0].blocks,1);
+    } finally { delete globalThis.__sql; delete globalThis.__dbReady; }
   });
 });
