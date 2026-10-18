@@ -50,8 +50,8 @@ const text = (max = 2000) => z.string().trim().min(1).max(max);
 const datetime = z.iso.datetime({ offset: true });
 const nullable = <T extends z.ZodType>(s: T) => s.nullable().default(null);
 const metadata = z.record(z.string(), z.unknown());
-const incidentMetadata = metadata.refine((value) => !Object.hasOwn(value, "network_origin"), {
-  message: "network_origin se registra mediante /incidents/{id}/network-origin, no desde el análisis de IA.",
+const incidentMetadata = metadata.refine((value) => !["network_origin","findings_batch","report_request","report_generation","report_authorization"].some(key=>Object.hasOwn(value,key)), {
+  message: "La procedencia y el estado del reporte se registran mediante sus endpoints específicos, no desde el CRUD.",
 });
 function withDefaults(shape: Record<string, z.ZodType>, values: Record<string, unknown> = {}) {
   return Object.fromEntries(Object.entries(shape).map(([key, schema]) => [key, schema.default(key in values ? values[key] : null)]));
@@ -279,7 +279,7 @@ const entities: ResourceDef = {
   table: "entities",
   title: "Datos observados",
   description:
-    "Teléfonos, cuentas, montos, nombres, organizaciones o lugares. normalized se calcula si no se envía; un dato repetido en el mismo incidente se ignora. provenance: mencionado | mostrado | reportado_usuario.",
+    "Datos puntuales para Perú: telefono, cuenta, cci, billetera, monto y otros. normalized se recalcula en el servidor; cuentas requieren analysis_meta.bank para comparar y billeteras analysis_meta.wallet. Un dato repetido en el mismo incidente se ignora. Se conserva el original y su procedencia.",
   idPrefix: "ent",
   columns: ["id", "incident_id", "kind", "value", "normalized", "provenance", "analysis_meta", "created_at"],
   jsonColumns: ["analysis_meta"],
@@ -304,7 +304,7 @@ const entities: ResourceDef = {
   prepare: async (rows) =>
     withIdAndTimes("ent", rows).map((r) => ({
       ...r,
-      normalized: r.normalized ?? (normalizeEntity(r.kind as string, r.value as string) || (r.value as string)),
+      normalized: normalizeEntity(r.kind as string, r.value as string, r.analysis_meta as Record<string, unknown>) || (r.value as string),
     })),
 };
 

@@ -57,6 +57,7 @@ const DIRECTION = { incoming: "Llamada entrante", outgoing: "Llamada saliente" }
 
 export function IncidentReport({ detail, tab = "ia" }: { detail: IncidentDetail; tab?: ReportTab }) {
   const { incident, transcript, signals, entities, actions, voiceSamples, owner, sharedOrg, links, relatedGroup, relatedCases, suspect } = detail;
+  const generation = incident.analysis_meta.report_generation as { status?: string } | undefined;
   const here = `/panel/casos/${incident.id}`;
   const number = fmtPhone(incident.caller_e164 ?? incident.caller_number_raw);
   const reasons = Array.isArray(incident.risk_reasons) ? incident.risk_reasons.filter((r) => typeof r === "string") : [];
@@ -144,6 +145,9 @@ export function IncidentReport({ detail, tab = "ia" }: { detail: IncidentDetail;
                 {channelLabel(incident.channel)}
               </Fact>
             </div>
+            {generation?.status === "running" && <p className="mt-4 text-sm text-muted" role="status">Preparando el resumen automático.</p>}
+            {generation?.status === "completed" && <p className="mt-4 text-xs text-muted">Resumen automático · pendiente de revisión humana.</p>}
+            {generation?.status === "failed" && <p className="mt-4 text-sm text-warning-ink" role="status">No se pudo elaborar el resumen automático. El fallo no indica que la llamada sea segura.</p>}
             {incident.summary && <p className="mt-5 text-[15px] leading-relaxed text-fg">{incident.summary}</p>}
             {reasons.length > 0 && (
               <ul className="mt-3 flex flex-wrap gap-2">

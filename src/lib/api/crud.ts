@@ -4,6 +4,7 @@ import type postgres from "postgres";
 import { db, type Db } from "../db";
 import { emit } from "../events";
 import { refreshLinksFor } from "../links";
+import { normalizeEntity } from "../heuristics";
 import { ApiError, notFound, pagination } from "./http";
 import type { ResourceDef } from "./resources";
 
@@ -81,6 +82,9 @@ export async function createRows(def: ResourceDef, body: unknown, fixed: Row = {
     return result.data as Row;
   });
 
+  if (def.name === "actions" && parsed.some(row => row.kind === "findings_committed")) {
+    throw new ApiError(409, "reserved_action", "La entrega de hallazgos se registra desde /incidents/{id}/findings.");
+  }
   const sql = await db();
   const rows = def.prepare ? await def.prepare(parsed, sql) : parsed;
   const storedRows = rows.map((row) => jsonValues(sql, def, row));
@@ -102,11 +106,19 @@ export async function createRows(def: ResourceDef, body: unknown, fixed: Row = {
 }
 
 export async function updateRow(def: ResourceDef, id: string, body: unknown) {
-  if (def.name === "actions" && ["link_review", "network_origin_binding", "network_origin_check"].includes(String((await getRow(def, id)).kind))) {
+  if (def.name === "actions" && ["link_review", "network_origin_binding", "network_origin_check", "findings_committed"].includes(String((await getRow(def, id)).kind))) {
     throw new ApiError(409, "immutable_review", "El registro de revisión o procedencia se conserva. Registra una nueva decisión o consulta.");
   }
   const patch = def.update.parse(body) as Row;
   const values = def.preparePatch ? def.preparePatch(patch) : patch;
+  if (def.name === "actions" && values.kind === "findings_committed") {
+    throw new ApiError(409, "reserved_action", "La entrega de hallazgos se registra desde /incidents/{id}/findings.");
+  }
+  if (def.name === "entities" && ["kind", "value", "analysis_meta", "normalized"].some(k => values[k] !== undefined)) {
+    const original = await getRow(def, id);
+    values.normalized = normalizeEntity(String(values.kind ?? original.kind), String(values.value ?? original.value),
+      (values.analysis_meta ?? original.analysis_meta) as Record<string, unknown>);
+  }
   const keys = Object.keys(values).filter((k) => values[k] !== undefined);
   if (!keys.length) throw new ApiError(400, "empty_patch", "No hay campos para actualizar.");
   const sql = await db();
@@ -132,7 +144,7 @@ export async function updateRow(def: ResourceDef, id: string, body: unknown) {
 export async function deleteRow(def: ResourceDef, id: string) {
   const sql = await db();
   const before = await getRow(def, id);
-  if (def.name === "actions" && ["link_review", "network_origin_binding", "network_origin_check"].includes(String(before.kind))) {
+  if (def.name === "actions" && ["link_review", "network_origin_binding", "network_origin_check", "findings_committed"].includes(String(before.kind))) {
     throw new ApiError(409, "immutable_review", "Las revisiones y consultas de procedencia se conservan en el historial.");
   }
   await sql`delete from ${sql(def.table)} where id = ${id}`;

@@ -1,8 +1,8 @@
 import "server-only";
 import type postgres from "postgres";
 import { db, newId, nowIso, type Db } from "./db";
-import { normalizeEntity } from "./heuristics";
 import { ENTITY_LABELS, type EntityKind, type LinkReason, type SignalType } from "./types";
+import { entityMatchKeyPe, normalizePhonePe } from "./peru";
 
 /**
  * Propone vínculos entre incidentes compartidos con la misma organización.
@@ -14,9 +14,9 @@ import { ENTITY_LABELS, type EntityKind, type LinkReason, type SignalType } from
 interface Profile {
   id: string;
   signalTypes: Set<SignalType>;
-  entities: { kind: EntityKind; normalized: string; value: string }[];
-  /** Número desde el que llamaron (identificador de llamada). */
-  caller: { normalized: string; value: string } | null;
+  entities: { kind: EntityKind; normalized: string; value: string; analysis_meta: Record<string, unknown> }[];
+  /** Número desde el que llamaron (identificador de llamada), con la misma clave que entityMatchKeyPe. */
+  caller: { key: string; value: string } | null;
 }
 
 /** Carga en lote las señales y los datos de varios incidentes. */
@@ -24,8 +24,8 @@ async function loadProfiles(sql: Db, ids: string[]) {
   const [types, entities, callers] = await Promise.all([
     sql<{ incident_id: string; type: SignalType }[]>`
       select distinct incident_id, type from signals where incident_id in ${sql(ids)}`,
-    sql<{ incident_id: string; kind: EntityKind; normalized: string; value: string }[]>`
-      select incident_id, kind, normalized, value from entities where incident_id in ${sql(ids)}`,
+    sql<{ incident_id: string; kind: EntityKind; normalized: string; value: string; analysis_meta: Record<string, unknown> }[]>`
+      select incident_id, kind, normalized, value, analysis_meta from entities where incident_id in ${sql(ids)}`,
     sql<{ id: string; caller: string | null }[]>`
       select id, coalesce(caller_e164, caller_number_raw) as caller from incidents where id in ${sql(ids)}`,
   ]);
@@ -35,11 +35,22 @@ async function loadProfiles(sql: Db, ids: string[]) {
   for (const t of types) profiles.get(t.incident_id)!.signalTypes.add(t.type);
   for (const e of entities) profiles.get(e.incident_id)!.entities.push(e);
   for (const c of callers) {
-    const normalized = c.caller ? normalizeEntity("telefono", c.caller) : "";
-    // Números ocultos o demasiado cortos no permiten comparar.
-    if (normalized.length >= 7) profiles.get(c.id)!.caller = { normalized, value: c.caller! };
+    const key = c.caller ? callerKey(c.caller) : null;
+    if (key) profiles.get(c.id)!.caller = { key, value: c.caller! };
   }
   return profiles;
+}
+
+/**
+ * Clave del número de origen. Un número peruano usa la misma clave que los
+ * teléfonos observados (entityMatchKeyPe); otro número solo se compara en E.164
+ * exacto. Los números ocultos o incompletos no se comparan.
+ */
+function callerKey(raw: string) {
+  const pe = normalizePhonePe(raw);
+  if (pe) return `telefono:${pe}`;
+  const e164 = raw.replace(/[\s().-]/g, "");
+  return /^\+\d{8,15}$/.test(e164) ? `telefono:${e164}` : null;
 }
 
 /**
@@ -72,7 +83,7 @@ async function voiceSimilarity(sql: Db, id: string, others: string[]) {
   return new Map(rows.map((r) => [r.incident_id, r]));
 }
 
-const STRONG_KINDS: EntityKind[] = ["telefono", "cuenta"];
+const STRONG_KINDS: EntityKind[] = ["telefono", "cuenta", "cci", "billetera"];
 const WEAK_KINDS: EntityKind[] = ["nombre"];
 
 function compare(a: Profile, b: Profile, voiceSim: number | null) {
@@ -88,26 +99,29 @@ function compare(a: Profile, b: Profile, voiceSim: number | null) {
   let entityScore = 0;
   const phones = new Set<string>();
   // El número de origen se compara con el de la otra llamada y con los teléfonos que se mencionaron en ella.
-  if (a.caller && b.caller && a.caller.normalized === b.caller.normalized) {
+  if (a.caller && b.caller && a.caller.key === b.caller.key) {
     entityScore = 1;
-    phones.add(a.caller.normalized);
+    phones.add(a.caller.key);
     reasons.push({
       kind: "dato_compartido",
       detail: `Mismo número de origen: ${a.caller.value}. El identificador de llamada puede falsificarse.`,
     });
   }
   for (const [x, y] of [[a, b], [b, a]] as const) {
-    if (!x.caller || phones.has(x.caller.normalized)) continue;
-    if (y.entities.some((e) => e.kind === "telefono" && e.normalized === x.caller!.normalized)) {
+    if (!x.caller || phones.has(x.caller.key)) continue;
+    if (y.entities.some((e) => e.kind === "telefono" && entityMatchKeyPe(e) === x.caller!.key)) {
       entityScore = 1;
-      phones.add(x.caller.normalized);
+      phones.add(x.caller.key);
       reasons.push({ kind: "dato_compartido", detail: `Teléfono repetido: ${x.caller.value} llamó en un caso y se mencionó en el otro.` });
     }
   }
   for (const ea of a.entities) {
-    const match = b.entities.find((eb) => eb.kind === ea.kind && eb.normalized === ea.normalized);
+    const key = entityMatchKeyPe(ea);
+    const match = b.entities.find((eb) => STRONG_KINDS.includes(ea.kind)
+      ? key !== null && entityMatchKeyPe(eb) === key
+      : eb.kind === ea.kind && eb.normalized === ea.normalized);
     if (!match) continue;
-    if (ea.kind === "telefono" && phones.has(ea.normalized)) continue;
+    if (ea.kind === "telefono" && key !== null && phones.has(key)) continue;
     if (STRONG_KINDS.includes(ea.kind)) {
       entityScore = 1;
       reasons.push({ kind: "dato_compartido", detail: `${ENTITY_LABELS[ea.kind]} repetido: ${ea.value}` });
@@ -177,7 +191,7 @@ export async function refreshLinksFor(incidentId: string, tx?: Db) {
     }
     const reasons = sql.json(result.reasons as unknown as postgres.JSONValue);
     const evidence = sql.json({
-      algorithm: "links-v4", metric: "cosine", voice_threshold: 0.8,
+      algorithm: "links-v5-pe", entity_normalization: "pe-v1", caller_comparison: true, metric: "cosine", voice_threshold: 0.8,
       sample_a: voice ? (a === incidentId ? voice.sample_a : voice.sample_b) : null,
       sample_b: voice ? (a === incidentId ? voice.sample_b : voice.sample_a) : null,
       model_id: voice?.model_id ?? null, model_version: voice?.model_version ?? null,
