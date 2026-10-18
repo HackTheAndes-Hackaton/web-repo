@@ -43,7 +43,7 @@ function components(incidents: IncidentSummary[], links: LinkView[]) {
 }
 
 /** Dato que comparte la mayoría de las conexiones del grupo (número, cuenta, voz…), para rotular el centro. */
-function commonTrait(links: LinkView[]) {
+export function commonTrait(links: LinkView[]) {
   const counts = new Map<string, number>();
   for (const l of links) {
     const seen = new Set<string>();

@@ -1,9 +1,9 @@
 import Link from "next/link";
-import { Network, Search } from "lucide-react";
+import { ChevronRight, Search } from "lucide-react";
 import { CallerNumber, Empty, PageHeader, RiskBadge, ScamTypeChip } from "@/components/ui";
-import { fmtDateTime } from "@/lib/format";
+import { fmtDateTime, fmtPhone } from "@/lib/format";
 import { requireAnalyst } from "@/lib/panel";
-import { caseCode, listLinks, listSharedIncidents } from "@/lib/repo";
+import { caseCode, listSharedIncidents, type IncidentSummary } from "@/lib/repo";
 import { scamTypeLabel } from "@/lib/types";
 import { normalizeText } from "@/lib/heuristics";
 
@@ -21,6 +21,96 @@ const VERDICT_FILTERS = [
 ];
 
 type Params = { riesgo: string; veredicto: string; q: string };
+
+const RISK_ORDER = { alto: 3, medio: 2, bajo: 1 } as const;
+
+/** Llamadas de un mismo número: en la lista se ven como una sola fila que se despliega. */
+interface CallerBucket {
+  key: string;
+  number: string | null;
+  cases: IncidentSummary[];
+}
+
+function bucketByCaller(incidents: IncidentSummary[]) {
+  const buckets = new Map<string, CallerBucket>();
+  for (const i of incidents) {
+    const raw = i.caller_e164 ?? i.caller_number_raw;
+    const digits = raw?.replace(/\D/g, "") ?? "";
+    // Sin número (u oculto) cada caso va solo.
+    const key = digits.length >= 7 ? `n:${digits}` : `c:${i.id}`;
+    const b = buckets.get(key) ?? { key, number: digits.length >= 7 ? raw : null, cases: [] };
+    b.cases.push(i);
+    buckets.set(key, b);
+  }
+  // Los casos llegan ordenados del más reciente al más antiguo: el grupo toma la posición de su último caso.
+  return [...buckets.values()];
+}
+
+const COLS = "grid grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)_minmax(0,1fr)_8.5rem] items-center gap-4";
+
+function TypeCell({ cases }: { cases: IncidentSummary[] }) {
+  const types = [...new Set(cases.map((c) => c.scam_type).filter((t): t is string => Boolean(t)))];
+  if (!types.length) return <span className="text-muted">—</span>;
+  return (
+    <span className="flex flex-wrap gap-1">
+      {types.slice(0, 2).map((t) => <ScamTypeChip key={t} type={t} />)}
+      {types.length > 2 && <span className="text-xs text-muted">+{types.length - 2}</span>}
+    </span>
+  );
+}
+
+function CaseRow({ i }: { i: IncidentSummary }) {
+  return (
+    <li>
+      <Link href={`/panel/casos/${i.id}`} className={`${COLS} px-5 py-3.5 hover:bg-accent-wash/50`}>
+        <span className="min-w-0">
+          <span className="block truncate font-semibold">{i.title}</span>
+          <span className="tabular block text-xs text-muted">{caseCode(i.id)} · {fmtDateTime(i.started_at)}</span>
+        </span>
+        <span className="min-w-0 truncate text-sm text-fg-2"><CallerNumber incident={i} /></span>
+        <TypeCell cases={[i]} />
+        <RiskBadge level={i.risk_level} score={i.risk_score} />
+      </Link>
+    </li>
+  );
+}
+
+function BucketRow({ b }: { b: CallerBucket }) {
+  const worst = [...b.cases].sort((x, y) => RISK_ORDER[y.risk_level] - RISK_ORDER[x.risk_level] || y.risk_score - x.risk_score)[0];
+  return (
+    <li>
+      <details className="group">
+        <summary className={`${COLS} cursor-pointer list-none px-5 py-3.5 hover:bg-accent-wash/50 [&::-webkit-details-marker]:hidden`}>
+          <span className="min-w-0">
+            <span className="flex items-center gap-1.5 font-semibold">
+              <ChevronRight size={15} className="shrink-0 text-muted transition group-open:rotate-90" aria-hidden />
+              {b.cases.length} llamadas del mismo número
+            </span>
+            <span className="block pl-5 text-xs text-muted">Última: {fmtDateTime(b.cases[0].started_at)}</span>
+          </span>
+          <span className="tabular min-w-0 truncate text-sm font-medium">{fmtPhone(b.number) ?? b.number}</span>
+          <TypeCell cases={b.cases} />
+          <span title="El riesgo más alto entre estas llamadas"><RiskBadge level={worst.risk_level} score={worst.risk_score} /></span>
+        </summary>
+        <ul className="border-t border-line bg-surface-2/50">
+          {b.cases.map((i) => (
+            <li key={i.id}>
+              <Link href={`/panel/casos/${i.id}`} className={`${COLS} py-2 pr-5 pl-11 text-sm hover:bg-accent-wash/50`}>
+                <span className="tabular min-w-0 truncate">
+                  <span className="font-semibold">{caseCode(i.id)}</span> <span className="text-muted">· {fmtDateTime(i.started_at)}</span>
+                </span>
+                <span className="min-w-0 truncate text-fg-2">{i.title}</span>
+                <TypeCell cases={[i]} />
+                <RiskBadge level={i.risk_level} score={i.risk_score} />
+              </Link>
+            </li>
+          ))}
+        </ul>
+      </details>
+    </li>
+  );
+}
+
 
 function filterHref(current: Params, k: keyof Params, v: string) {
   const p = new URLSearchParams(Object.entries(current).filter(([, val]) => val));
@@ -70,12 +160,7 @@ export default async function Cases({ searchParams }: PageProps<"/panel/casos">)
     q: typeof sp.q === "string" ? sp.q.trim() : "",
   };
 
-  const linkCount = new Map<string, number>();
-  const [links, all] = await Promise.all([listLinks(orgId), listSharedIncidents(orgId)]);
-  for (const l of links) {
-    linkCount.set(l.incident_a, (linkCount.get(l.incident_a) ?? 0) + 1);
-    linkCount.set(l.incident_b, (linkCount.get(l.incident_b) ?? 0) + 1);
-  }
+  const all = await listSharedIncidents(orgId);
   const needle = normalizeText(params.q);
   const incidents = all.filter(
     (i) =>
@@ -128,54 +213,19 @@ export default async function Cases({ searchParams }: PageProps<"/panel/casos">)
 
       {incidents.length ? (
         <div className="overflow-x-auto rounded-3xl bg-surface shadow-soft">
-          <table className="w-full min-w-[960px] text-left text-sm">
-            <thead className="bg-surface-2/70 text-[11px] uppercase tracking-wider text-muted">
-              <tr>
-                <th className="px-5 py-3 font-medium">Caso</th>
-                <th className="px-5 py-3 font-medium">Tipo de estafa</th>
-                <th className="px-5 py-3 font-medium">Número que llamó</th>
-                <th className="px-5 py-3 font-medium">Riesgo</th>
-                <th className="px-5 py-3 text-right font-medium">Vínculos</th>
-              </tr>
-            </thead>
-            <tbody>
-              {incidents.map((i) => {
-                const links = linkCount.get(i.id) ?? 0;
-                return (
-                  <tr key={i.id} className="border-b border-line last:border-0 hover:bg-accent-wash/50">
-                    <td className="min-w-64 px-5 py-4">
-                      <Link href={`/panel/casos/${i.id}`} className="font-semibold hover:text-accent">
-                        {i.title}
-                      </Link>
-                      <div className="mt-0.5 text-xs text-muted">
-                        <span className="tabular">{caseCode(i.id)}</span> · {fmtDateTime(i.started_at)}
-                      </div>
-                    </td>
-                    <td className="px-5 py-4">
-                      {i.scam_type ? <ScamTypeChip type={i.scam_type} /> : <span className="text-xs text-muted">Sin clasificar</span>}
-                      {i.impersonating && <div className="mt-1 text-xs text-fg-2">Se hace pasar por {i.impersonating}</div>}
-                    </td>
-                    <td className="px-5 py-4">
-                      <CallerNumber incident={i} />
-                    </td>
-                    <td className="px-5 py-4">
-                      <RiskBadge level={i.risk_level} score={i.risk_score} />
-                    </td>
-                    <td className="tabular px-5 py-4 text-right">
-                      {links ? (
-                        <span className="inline-flex items-center gap-1 text-fg-2">
-                          <Network size={13} aria-hidden />
-                          {links}
-                        </span>
-                      ) : (
-                        <span className="text-muted">—</span>
-                      )}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+          <div className="min-w-[760px]">
+            <div className={`${COLS} bg-surface-2/70 px-5 py-3 text-[11px] font-medium uppercase tracking-wider text-muted`}>
+              <span>Caso</span>
+              <span>Número que llamó</span>
+              <span>Tipo de estafa</span>
+              <span>Riesgo</span>
+            </div>
+            <ul className="divide-y divide-line">
+              {bucketByCaller(incidents).map((b) =>
+                b.cases.length > 1 ? <BucketRow key={b.key} b={b} /> : <CaseRow key={b.key} i={b.cases[0]} />,
+              )}
+            </ul>
+          </div>
         </div>
       ) : (
         <Empty>No hay casos con esos filtros.</Empty>

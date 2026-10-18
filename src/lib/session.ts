@@ -6,6 +6,8 @@ import { db } from "./db";
 import type { Role, Session } from "./types";
 
 export const SESSION_COOKIE = "demo_session";
+/** Analista con la que se entra directo al panel cuando no hay cookie (demo). */
+const DEFAULT_ANALYST = "usr_analista";
 
 /**
  * Sesión de demostración: la cookie guarda el id de un usuario sembrado.
@@ -15,10 +17,14 @@ export async function getSession(): Promise<Session | null> {
   // Los datos vienen de Supabase y cambian en cada solicitud: nunca se prerenderizan.
   await connection();
   const id = (await cookies()).get(SESSION_COOKIE)?.value;
-  if (!id) return null;
   const sql = await db();
-  const [row] = await sql<{ id: string; name: string; role: Role; org_id: string | null }[]>`
-    select id, name, role, org_id from users where id = ${id}`;
+  // Sin cookie se entra directo con la analista de demostración (o la primera analista, si no existe).
+  const [row] = id
+    ? await sql<{ id: string; name: string; role: Role; org_id: string | null }[]>`
+        select id, name, role, org_id from users where id = ${id}`
+    : await sql<{ id: string; name: string; role: Role; org_id: string | null }[]>`
+        select id, name, role, org_id from users where role = 'analista' and org_id is not null
+        order by (id = ${DEFAULT_ANALYST}) desc, created_at limit 1`;
   if (!row) return null;
   return { userId: row.id, name: row.name, role: row.role, orgId: row.org_id };
 }
