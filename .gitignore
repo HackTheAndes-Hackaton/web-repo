@@ -2,6 +2,9 @@
 
 # dependencies
 /node_modules
+# El proyecto usa npm (package-lock.json); otros lockfiles harían que Vercel cambie de gestor.
+bun.lock
+bun.lockb
 /.pnp
 .pnp.*
 .yarn/*
