@@ -59,6 +59,15 @@ export function buildOpenApi(baseUrl: string) {
     },
   };
   const paths: Record<string, unknown> = {};
+  paths["/mcp"] = {
+    post: {
+      tags:["MCP"], summary:"Herramientas de audio autorizado mediante MCP Streamable HTTP",
+      description:"JSON-RPC MCP: tools/list y tools/call. Herramientas guardar_fragmento, listar_fragmentos y escuchar_fragmento. X-Tiskz-Org obligatorio; la clave de servicio es global y nunca debe distribuirse a la APK. WAV PCM16 mono 16 kHz, 1–15 segundos, máximo seis fragmentos por sesión. No genera embeddings ni identifica personas.",
+      parameters:[{name:"X-Tiskz-Org",in:"header",required:true,schema:{type:"string"}}],
+      requestBody:{required:true,content:json({type:"object",required:["jsonrpc","method"],properties:{jsonrpc:{const:"2.0"},id:{},method:{type:"string"},params:{type:"object"}}})},
+      responses:{"200":{description:"Resultado JSON-RPC MCP; audio recuperado como contenido audio/wav en base64."},...errorResponses},
+    },
+  };
 
   for (const def of RESOURCES) {
     const name = schemaName(def);
